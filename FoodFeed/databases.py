@@ -5,6 +5,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(HERE, "foodfeed.db")
 SCHEMA_FILE = os.path.join(HERE, "schema.sql")
 
+SEED_USER_ID = "dev-seed-user"
+
 
 def get_db_connection():
     """Get a connection to the SQLite database."""
@@ -23,6 +25,10 @@ def init_db():
     conn = get_db_connection()
     with open(SCHEMA_FILE, "r") as f:
         conn.executescript(f.read())
+    conn.execute(
+        "INSERT OR IGNORE INTO users (id, email, name, edu_verified) VALUES (?, ?, ?, ?)",
+        (SEED_USER_ID, "dev@wustl.edu", "Dev Seed", 1),
+    )
     conn.commit()
     conn.close()
     print("Database initialized successfully.")

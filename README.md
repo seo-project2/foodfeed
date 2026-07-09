@@ -1,5 +1,15 @@
-## README file
+# FoodFeed
 
-Use View > Panels > Join with Closest to make one panel.
+Backend: Flask + SQLite in `FoodFeed/`. Frontend: Vite + React in `frontend/`.
 
-Click "VS Code" in the top menu bar to open VS Code.# foodfeed
+## Backend dev
+
+    make install
+    make init-db
+    make serve            # listens on :5000
+
+Endpoints: `GET /api/posts`, `POST /api/posts`.
+
+## Frontend dev
+
+    cd frontend && npm install && npm run dev
