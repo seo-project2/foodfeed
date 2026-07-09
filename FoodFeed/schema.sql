@@ -1,5 +1,3 @@
--- FoodFeed schema. Names align with the project overview (lowercase, plural, `expiry_time`).
-
 CREATE TABLE users (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
@@ -13,8 +11,9 @@ CREATE TABLE food_posts (
     title TEXT NOT NULL,
     description TEXT,
     location_text TEXT NOT NULL,
-    lat REAL NOT NULL,
-    lng REAL NOT NULL,
+    lat REAL,
+    lng REAL,
+    tag TEXT,
     expiry_time TIMESTAMP NOT NULL,
     image_url TEXT,
     moderation_score REAL,
