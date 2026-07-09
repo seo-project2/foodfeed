@@ -1,0 +1,23 @@
+# Local editor / agent state
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+
+# SQLite artifacts
+*.db
+*.db-journal
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
