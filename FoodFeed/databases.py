@@ -7,11 +7,14 @@ SCHEMA_FILE = os.path.join(HERE, "schema.sql")
 
 SEED_USER_ID = "dev-seed-user"
 
+DROP_ORDER = ("notifications", "subscriptions", "food_posts", "users")
+
 
 def get_db_connection():
-    """Get a connection to the SQLite database."""
+    """Get a connection to the SQLite database with FK enforcement enabled."""
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -23,6 +26,8 @@ def init_db():
 
     print("Initializing database...")
     conn = get_db_connection()
+    for table in DROP_ORDER:
+        conn.execute(f"DROP TABLE IF EXISTS {table}")
     with open(SCHEMA_FILE, "r") as f:
         conn.executescript(f.read())
     conn.execute(
