@@ -1,11 +1,30 @@
+import base64
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
-from ..auth import current_user_id
+from ..auth import current_user_id, require_auth
+from ..config import OPENAI_API_KEY, OPENAI_MODEL
 from ..databases import get_db_connection
+from ..geocoding import geocode
+from ..matching import build_message, find_matches
 
 bp = Blueprint("posts", __name__, url_prefix="/api/posts")
+
+log = logging.getLogger(__name__)
+
+MAX_SCAN_BYTES = 5 * 1024 * 1024
+
+SCAN_SYSTEM_PROMPT = (
+    "You are an OCR/extraction assistant. Extract these fields from a "
+    "campus food flyer image. Return strict JSON with keys `title` "
+    "(short, one line), `location` (building/room), `minutes` (int, how "
+    "long the food will be available), `tag` (single lowercase word "
+    "describing the food). Return null for any field you cannot find "
+    "with confidence."
+)
 
 
 @bp.get("")
@@ -13,7 +32,7 @@ def list_posts():
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, title, location_text, tag, expiry_time "
+        "SELECT id, title, location_text, tag, lat, lng, expiry_time "
         "FROM food_posts WHERE expiry_time > ? ORDER BY expiry_time ASC",
         (now,),
     ).fetchall()
@@ -21,7 +40,23 @@ def list_posts():
     return jsonify([_to_feed_item(r) for r in rows])
 
 
+@bp.get("/map")
+def list_map_posts():
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT id, title, location_text, tag, lat, lng, expiry_time "
+        "FROM food_posts "
+        "WHERE expiry_time > ? AND lat IS NOT NULL AND lng IS NOT NULL "
+        "ORDER BY expiry_time ASC",
+        (now,),
+    ).fetchall()
+    conn.close()
+    return jsonify([_to_feed_item(r) for r in rows])
+
+
 @bp.post("")
+@require_auth
 def create_post():
     body = request.get_json(silent=True) or {}
     title = (body.get("title") or "").strip()
@@ -39,19 +74,103 @@ def create_post():
         return jsonify({"error": "minutes must be a positive integer"}), 400
 
     expiry = datetime.now(timezone.utc) + timedelta(minutes=minutes_int)
+    coords = geocode(location)
+    lat, lng = coords if coords else (None, None)
+    user_id = current_user_id()
+
     conn = get_db_connection()
     cur = conn.execute(
-        "INSERT INTO food_posts (user_id, title, location_text, tag, expiry_time) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (current_user_id(), title, location, tag, expiry.isoformat()),
+        "INSERT INTO food_posts (user_id, title, location_text, tag, lat, lng, expiry_time) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (user_id, title, location, tag, lat, lng, expiry.isoformat()),
     )
+    post_id = cur.lastrowid
+
+    conn.execute("SAVEPOINT notifs")
+    try:
+        matches = find_matches(
+            conn,
+            {"user_id": user_id, "title": title, "lat": lat, "lng": lng},
+        )
+        if matches:
+            rows = [
+                (
+                    post_id,
+                    m["user_id"],
+                    build_message(title, m.get("keyword"), location),
+                )
+                for m in matches
+            ]
+            conn.executemany(
+                "INSERT INTO notifications (post_id, user_id, message) VALUES (?, ?, ?)",
+                rows,
+            )
+        conn.execute("RELEASE SAVEPOINT notifs")
+    except Exception:
+        conn.execute("ROLLBACK TO SAVEPOINT notifs")
+        conn.execute("RELEASE SAVEPOINT notifs")
+        log.exception("notification insert failed for post_id=%s", post_id)
+
     conn.commit()
     row = conn.execute(
-        "SELECT id, title, location_text, tag, expiry_time FROM food_posts WHERE id = ?",
-        (cur.lastrowid,),
+        "SELECT id, title, location_text, tag, lat, lng, expiry_time "
+        "FROM food_posts WHERE id = ?",
+        (post_id,),
     ).fetchone()
     conn.close()
     return jsonify(_to_feed_item(row)), 201
+
+
+@bp.post("/scan")
+@require_auth
+def scan_flyer():
+    if "image" not in request.files:
+        return jsonify({"error": "image file is required"}), 400
+    image = request.files["image"]
+    mimetype = image.mimetype or ""
+    if not mimetype.startswith("image/"):
+        return jsonify({"error": "file must be an image"}), 400
+    raw = image.read()
+    if len(raw) == 0:
+        return jsonify({"error": "image is empty"}), 400
+    if len(raw) > MAX_SCAN_BYTES:
+        return jsonify({"error": "image exceeds 5 MB"}), 400
+
+    if not OPENAI_API_KEY:
+        return jsonify({"error": "OPENAI_API_KEY not configured"}), 502
+
+    data_url = f"data:{mimetype};base64,{base64.b64encode(raw).decode('ascii')}"
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        completion = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": SCAN_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Extract the fields as JSON."},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                },
+            ],
+        )
+        content = completion.choices[0].message.content or "{}"
+        parsed = json.loads(content)
+    except Exception:
+        log.exception("scan failed")
+        return jsonify({"error": "scan failed"}), 502
+
+    return jsonify({
+        "title": parsed.get("title"),
+        "location": parsed.get("location"),
+        "minutes": parsed.get("minutes"),
+        "tag": parsed.get("tag"),
+    })
 
 
 def _to_feed_item(row):
@@ -59,10 +178,14 @@ def _to_feed_item(row):
     if expiry.tzinfo is None:
         expiry = expiry.replace(tzinfo=timezone.utc)
     minutes_left = max(0, int((expiry - datetime.now(timezone.utc)).total_seconds() // 60))
-    return {
+    item = {
         "id": row["id"],
         "title": row["title"],
         "location": row["location_text"],
         "tag": row["tag"],
         "minutesLeft": minutes_left,
     }
+    if row["lat"] is not None and row["lng"] is not None:
+        item["lat"] = row["lat"]
+        item["lng"] = row["lng"]
+    return item
