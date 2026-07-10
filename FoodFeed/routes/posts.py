@@ -1,9 +1,12 @@
+import base64
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
 from ..auth import current_user_id, require_auth
+from ..config import OPENAI_API_KEY, OPENAI_MODEL
 from ..databases import get_db_connection
 from ..geocoding import geocode
 from ..matching import build_message, find_matches
@@ -11,6 +14,17 @@ from ..matching import build_message, find_matches
 bp = Blueprint("posts", __name__, url_prefix="/api/posts")
 
 log = logging.getLogger(__name__)
+
+MAX_SCAN_BYTES = 5 * 1024 * 1024
+
+SCAN_SYSTEM_PROMPT = (
+    "You are an OCR/extraction assistant. Extract these fields from a "
+    "campus food flyer image. Return strict JSON with keys `title` "
+    "(short, one line), `location` (building/room), `minutes` (int, how "
+    "long the food will be available), `tag` (single lowercase word "
+    "describing the food). Return null for any field you cannot find "
+    "with confidence."
+)
 
 
 @bp.get("")
@@ -105,6 +119,58 @@ def create_post():
     ).fetchone()
     conn.close()
     return jsonify(_to_feed_item(row)), 201
+
+
+@bp.post("/scan")
+@require_auth
+def scan_flyer():
+    if "image" not in request.files:
+        return jsonify({"error": "image file is required"}), 400
+    image = request.files["image"]
+    mimetype = image.mimetype or ""
+    if not mimetype.startswith("image/"):
+        return jsonify({"error": "file must be an image"}), 400
+    raw = image.read()
+    if len(raw) == 0:
+        return jsonify({"error": "image is empty"}), 400
+    if len(raw) > MAX_SCAN_BYTES:
+        return jsonify({"error": "image exceeds 5 MB"}), 400
+
+    if not OPENAI_API_KEY:
+        return jsonify({"error": "OPENAI_API_KEY not configured"}), 502
+
+    data_url = f"data:{mimetype};base64,{base64.b64encode(raw).decode('ascii')}"
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        completion = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": SCAN_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Extract the fields as JSON."},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                },
+            ],
+        )
+        content = completion.choices[0].message.content or "{}"
+        parsed = json.loads(content)
+    except Exception:
+        log.exception("scan failed")
+        return jsonify({"error": "scan failed"}), 502
+
+    return jsonify({
+        "title": parsed.get("title"),
+        "location": parsed.get("location"),
+        "minutes": parsed.get("minutes"),
+        "tag": parsed.get("tag"),
+    })
 
 
 def _to_feed_item(row):
