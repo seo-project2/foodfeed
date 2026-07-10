@@ -1,4 +1,4 @@
-import { useState, useRef, cloneElement } from 'react';
+import { useState, useEffect, useRef, cloneElement } from 'react';
 import { Home, Map, Plus, Bell, User, Camera, MapPin, Clock, ArrowLeft, Sparkles, Tag, Check } from 'lucide-react';
 
 const colors = {
@@ -15,12 +15,7 @@ const colors = {
   card: '#FFFFFF',
 };
 
-const initialPosts = [
-  { id: 1, title: 'Free pizza — CS Dept mixer', location: 'Simon Hall lobby', minutesLeft: 25, tag: 'pizza' },
-  { id: 2, title: 'Cookies & coffee — career fair prep', location: 'Danforth University Center', minutesLeft: 70, tag: 'sweets' },
-  { id: 3, title: 'Leftover Chipotle — RSO general meeting', location: 'Seigle Hall, room 200', minutesLeft: 45, tag: 'halal-friendly' },
-  { id: 4, title: "Boba + snacks — Bio Society social", location: "Bear's Den", minutesLeft: 120, tag: 'vegan options' },
-];
+const API_BASE = 'https://ingridalfred-designlinear-5000.codio.io';
 
 function formatMinutes(m) {
   if (m < 60) return `${m}m left`;
@@ -117,10 +112,23 @@ function Placeholder({ icon, title, subtitle }) {
 
 export default function FoodFeed() {
   const [screen, setScreen] = useState('home');
-  const [posts, setPosts] = useState(initialPosts);
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [scanState, setScanState] = useState('idle');
   const [form, setForm] = useState({ title: '', location: '', minutes: '', tag: '' });
   const scanTimeout = useRef(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/posts`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => setPosts(data))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
 
   const resetForm = () => {
     setForm({ title: '', location: '', minutes: '', tag: '' });
@@ -144,18 +152,27 @@ export default function FoodFeed() {
 
   const submitPost = () => {
     if (!form.title.trim() || !form.location.trim()) return;
-    const newPost = {
-      id: Date.now(),
-      title: form.title.trim(),
-      location: form.location.trim(),
-      minutesLeft: Number(form.minutes) || 30,
-      tag: form.tag.trim() || null,
-    };
-    setPosts([newPost, ...posts]);
-    resetForm();
-    setScreen('home');
+    fetch(`${API_BASE}/api/posts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: form.title.trim(),
+        location: form.location.trim(),
+        minutes: Number(form.minutes) || 30,
+        tag: form.tag.trim() || null,
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+        return res.json();
+      })
+      .then((newPost) => {
+        setPosts([newPost, ...posts]);
+        resetForm();
+        setScreen('home');
+      })
+      .catch((err) => setError(err.message));
   };
-
   const titles = { home: 'FoodFeed', post: 'New sighting', map: 'Map', alerts: 'My alerts', profile: 'Profile' };
 
   return (
