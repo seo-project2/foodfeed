@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
@@ -5,8 +6,11 @@ from flask import Blueprint, jsonify, request
 from ..auth import current_user_id, require_auth
 from ..databases import get_db_connection
 from ..geocoding import geocode
+from ..matching import build_message, find_matches
 
 bp = Blueprint("posts", __name__, url_prefix="/api/posts")
+
+log = logging.getLogger(__name__)
 
 
 @bp.get("")
@@ -58,18 +62,46 @@ def create_post():
     expiry = datetime.now(timezone.utc) + timedelta(minutes=minutes_int)
     coords = geocode(location)
     lat, lng = coords if coords else (None, None)
+    user_id = current_user_id()
 
     conn = get_db_connection()
     cur = conn.execute(
         "INSERT INTO food_posts (user_id, title, location_text, tag, lat, lng, expiry_time) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (current_user_id(), title, location, tag, lat, lng, expiry.isoformat()),
+        (user_id, title, location, tag, lat, lng, expiry.isoformat()),
     )
+    post_id = cur.lastrowid
+
+    conn.execute("SAVEPOINT notifs")
+    try:
+        matches = find_matches(
+            conn,
+            {"user_id": user_id, "title": title, "lat": lat, "lng": lng},
+        )
+        if matches:
+            rows = [
+                (
+                    post_id,
+                    m["user_id"],
+                    build_message(title, m.get("keyword"), location),
+                )
+                for m in matches
+            ]
+            conn.executemany(
+                "INSERT INTO notifications (post_id, user_id, message) VALUES (?, ?, ?)",
+                rows,
+            )
+        conn.execute("RELEASE SAVEPOINT notifs")
+    except Exception:
+        conn.execute("ROLLBACK TO SAVEPOINT notifs")
+        conn.execute("RELEASE SAVEPOINT notifs")
+        log.exception("notification insert failed for post_id=%s", post_id)
+
     conn.commit()
     row = conn.execute(
         "SELECT id, title, location_text, tag, lat, lng, expiry_time "
         "FROM food_posts WHERE id = ?",
-        (cur.lastrowid,),
+        (post_id,),
     ).fetchone()
     conn.close()
     return jsonify(_to_feed_item(row)), 201
