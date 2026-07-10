@@ -43,3 +43,7 @@ CREATE TABLE notifications (
     FOREIGN KEY (post_id) REFERENCES food_posts(id),
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
+
+CREATE INDEX idx_food_posts_expiry ON food_posts(expiry_time);
+CREATE INDEX idx_subs_user ON subscriptions(user_id);
+CREATE INDEX idx_notifs_user ON notifications(user_id);
