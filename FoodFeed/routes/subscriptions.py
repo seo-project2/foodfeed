@@ -2,13 +2,14 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
-from ..auth import current_user_id
+from ..auth import current_user_id, require_auth
 from ..databases import get_db_connection
 
 bp = Blueprint("subscriptions", __name__, url_prefix="/api/subscriptions")
 
 
 @bp.get("")
+@require_auth
 def list_subscriptions():
     user_id = current_user_id()
     conn = get_db_connection()
@@ -23,6 +24,7 @@ def list_subscriptions():
 
 
 @bp.post("")
+@require_auth
 def create_subscription():
     body = request.get_json(silent=True) or {}
     lat = body.get("lat")
@@ -71,6 +73,7 @@ def create_subscription():
 
 
 @bp.delete("/<int:sub_id>")
+@require_auth
 def delete_subscription(sub_id):
     user_id = current_user_id()
     conn = get_db_connection()

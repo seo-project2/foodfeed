@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
-from ..auth import current_user_id
+from ..auth import current_user_id, require_auth
 from ..databases import get_db_connection
 
 bp = Blueprint("posts", __name__, url_prefix="/api/posts")
@@ -22,6 +22,7 @@ def list_posts():
 
 
 @bp.post("")
+@require_auth
 def create_post():
     body = request.get_json(silent=True) or {}
     title = (body.get("title") or "").strip()
