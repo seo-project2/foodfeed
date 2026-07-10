@@ -39,3 +39,11 @@ Google `hd` claim).
 ## Frontend dev
 
     cd frontend && npm install && npm run dev
+
+## Attribution
+
+Geocoding on `POST /api/posts` uses the OpenStreetMap Nominatim service.
+© [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), data
+subject to the [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/).
+Set `NOMINATIM_CONTACT_EMAIL` in `.env` — required by the policy.
+
