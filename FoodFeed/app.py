@@ -4,6 +4,7 @@ from flask_cors import CORS
 from .config import SECRET_KEY
 from .routes.auth import bp as auth_bp
 from .routes.me import bp as me_bp
+from .routes.notifications import bp as notifications_bp
 from .routes.posts import bp as posts_bp
 from .routes.subscriptions import bp as subscriptions_bp
 
@@ -18,6 +19,7 @@ def create_app():
     app.register_blueprint(subscriptions_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(me_bp)
+    app.register_blueprint(notifications_bp)
     return app
 
 
