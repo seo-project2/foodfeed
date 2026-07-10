@@ -29,6 +29,8 @@ CREATE TABLE subscriptions (
     radius_miles REAL NOT NULL,
     keyword TEXT,
     end_date TIMESTAMP,
+    active BOOLEAN NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
