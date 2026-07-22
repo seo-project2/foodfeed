@@ -32,7 +32,7 @@ def list_posts():
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, title, location_text, tag, lat, lng, expiry_time "
+        "SELECT id, title, location_text, tag, lat, lng, image_url, expiry_time "
         "FROM food_posts WHERE expiry_time > ? ORDER BY expiry_time ASC",
         (now,),
     ).fetchall()
@@ -45,7 +45,7 @@ def list_map_posts():
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, title, location_text, tag, lat, lng, expiry_time "
+        "SELECT id, title, location_text, tag, lat, lng, image_url, expiry_time "
         "FROM food_posts "
         "WHERE expiry_time > ? AND lat IS NOT NULL AND lng IS NOT NULL "
         "ORDER BY expiry_time ASC",
@@ -113,7 +113,7 @@ def create_post():
 
     conn.commit()
     row = conn.execute(
-        "SELECT id, title, location_text, tag, lat, lng, expiry_time "
+        "SELECT id, title, location_text, tag, lat, lng, image_url, expiry_time "
         "FROM food_posts WHERE id = ?",
         (post_id,),
     ).fetchone()
@@ -184,6 +184,7 @@ def _to_feed_item(row):
         "location": row["location_text"],
         "tag": row["tag"],
         "minutesLeft": minutes_left,
+        "imageUrl": row["image_url"],
     }
     if row["lat"] is not None and row["lng"] is not None:
         item["lat"] = row["lat"]

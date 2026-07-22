@@ -3,7 +3,7 @@ import uuid
 from flask import Blueprint, jsonify, request, session
 
 from ..auth import verify_google_token
-from ..config import ALLOWED_EMAIL_DOMAIN
+from ..config import ALLOWED_EMAIL_SUFFIX
 from ..databases import get_db_connection
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
@@ -21,12 +21,11 @@ def google_sign_in():
     except ValueError as exc:
         return jsonify({"error": f"invalid token: {exc}"}), 401
 
-    if claims.get("hd") != ALLOWED_EMAIL_DOMAIN:
-        return jsonify({"error": f"email domain must be {ALLOWED_EMAIL_DOMAIN}"}), 403
-
     email = claims.get("email")
     if not email:
         return jsonify({"error": "token missing email"}), 401
+    if not email.lower().endswith(ALLOWED_EMAIL_SUFFIX):
+        return jsonify({"error": f"email must end in {ALLOWED_EMAIL_SUFFIX}"}), 403
     name = claims.get("name") or ""
 
     conn = get_db_connection()
