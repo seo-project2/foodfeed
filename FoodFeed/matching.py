@@ -22,8 +22,8 @@ def haversine_miles(lat1, lng1, lat2, lng2):
 def build_message(title, keyword, location_text):
     """Server-generated notification copy. Keep templating in one place."""
     if keyword:
-        return f"{title} near your {location_text} alert"
-    return f"{title} near your {location_text} alert"
+        return f'"{keyword}" match — {title} at {location_text}'
+    return f"New nearby: {title} at {location_text}"
 
 
 def find_matches(conn, post):
