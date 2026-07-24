@@ -1437,7 +1437,7 @@ export default function FoodFeed() {
                 </div>
               </div>
               <Field label="Expires in (minutes)" value={form.minutes} onChange={(v) => setForm({ ...form, minutes: v })} placeholder="e.g. 30" icon={<Clock size={14} />} autoFilled={scanState === 'done'} type="number" />
-              <Field label="Organization (optional)" value={form.organization} onChange={(v) => setForm({ ...form, organization: v })} placeholder="e.g. Chinese Student Association" icon={<Users size={14} />} autoFilled={scanState === 'done' && !!form.organization} />
+              <Field label="Organization (optional)" value={form.organization} onChange={(v) => setForm({ ...form, organization: v })} placeholder="e.g. Sponsors for Educational Opportunity" icon={<Users size={14} />} autoFilled={scanState === 'done' && !!form.organization} />
               <Field label="Tag (optional)" value={form.tag} onChange={(v) => setForm({ ...form, tag: v })} placeholder="e.g. pizza, halal, vegan" icon={<Tag size={14} />} />
             </div>
 
