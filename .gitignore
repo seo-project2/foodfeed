@@ -9,6 +9,9 @@ __pycache__/
 *.db
 *.db-journal
 
+# Runtime upload directory
+FoodFeed/uploads/
+
 # Node / Vite
 node_modules/
 dist/
