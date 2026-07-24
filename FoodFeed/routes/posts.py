@@ -1,12 +1,14 @@
 import base64
 import json
 import logging
+import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
 from ..auth import current_user_id, require_auth
-from ..config import OPENAI_API_KEY, OPENAI_MODEL
+from ..config import OPENAI_API_KEY, OPENAI_MODEL, UPLOAD_DIR
 from ..databases import get_db_connection
 from ..geocoding import geocode
 from ..matching import build_message, find_matches
@@ -16,6 +18,14 @@ bp = Blueprint("posts", __name__, url_prefix="/api/posts")
 log = logging.getLogger(__name__)
 
 MAX_SCAN_BYTES = 5 * 1024 * 1024
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+EXT_BY_MIME = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
 
 SCAN_SYSTEM_PROMPT = (
     "You are an OCR/extraction assistant. Extract these fields from a "
@@ -30,12 +40,25 @@ SCAN_SYSTEM_PROMPT = (
 @bp.get("")
 def list_posts():
     now = datetime.now(timezone.utc).isoformat()
-    conn = get_db_connection()
-    rows = conn.execute(
+    q = (request.args.get("q") or "").strip()
+    tag = (request.args.get("tag") or "").strip()
+
+    sql = (
         "SELECT id, title, location_text, tag, lat, lng, image_url, expiry_time "
-        "FROM food_posts WHERE expiry_time > ? ORDER BY expiry_time ASC",
-        (now,),
-    ).fetchall()
+        "FROM food_posts WHERE expiry_time > ?"
+    )
+    params = [now]
+    if q:
+        sql += " AND (LOWER(title) LIKE ? OR LOWER(location_text) LIKE ?)"
+        needle = f"%{q.lower()}%"
+        params.extend([needle, needle])
+    if tag:
+        sql += " AND LOWER(tag) = ?"
+        params.append(tag.lower())
+    sql += " ORDER BY expiry_time ASC"
+
+    conn = get_db_connection()
+    rows = conn.execute(sql, tuple(params)).fetchall()
     conn.close()
     return jsonify([_to_feed_item(r) for r in rows])
 
@@ -55,14 +78,36 @@ def list_map_posts():
     return jsonify([_to_feed_item(r) for r in rows])
 
 
+@bp.get("/<int:post_id>")
+def get_post(post_id):
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT id, title, location_text, tag, lat, lng, image_url, expiry_time "
+        "FROM food_posts WHERE id = ?",
+        (post_id,),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(_to_feed_item(row))
+
+
 @bp.post("")
 @require_auth
 def create_post():
-    body = request.get_json(silent=True) or {}
-    title = (body.get("title") or "").strip()
-    location = (body.get("location") or "").strip()
-    minutes = body.get("minutes")
-    tag = (body.get("tag") or "").strip() or None
+    if request.content_type and request.content_type.startswith("multipart/form-data"):
+        title = (request.form.get("title") or "").strip()
+        location = (request.form.get("location") or "").strip()
+        minutes = request.form.get("minutes")
+        tag = (request.form.get("tag") or "").strip() or None
+        image_file = request.files.get("image")
+    else:
+        body = request.get_json(silent=True) or {}
+        title = (body.get("title") or "").strip()
+        location = (body.get("location") or "").strip()
+        minutes = body.get("minutes")
+        tag = (body.get("tag") or "").strip() or None
+        image_file = None
 
     if not title or not location:
         return jsonify({"error": "title and location are required"}), 400
@@ -73,6 +118,23 @@ def create_post():
     except (TypeError, ValueError):
         return jsonify({"error": "minutes must be a positive integer"}), 400
 
+    image_url = None
+    if image_file is not None and image_file.filename:
+        mimetype = (image_file.mimetype or "").lower()
+        if mimetype not in ALLOWED_IMAGE_TYPES:
+            return jsonify({"error": "image must be JPEG, PNG, WEBP, or GIF"}), 400
+        raw = image_file.read()
+        if len(raw) == 0:
+            return jsonify({"error": "image is empty"}), 400
+        if len(raw) > MAX_UPLOAD_BYTES:
+            return jsonify({"error": "image exceeds 5 MB"}), 400
+        ext = EXT_BY_MIME[mimetype]
+        fname = f"{uuid.uuid4().hex}{ext}"
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        with open(os.path.join(UPLOAD_DIR, fname), "wb") as fh:
+            fh.write(raw)
+        image_url = f"/uploads/{fname}"
+
     expiry = datetime.now(timezone.utc) + timedelta(minutes=minutes_int)
     coords = geocode(location)
     lat, lng = coords if coords else (None, None)
@@ -80,9 +142,9 @@ def create_post():
 
     conn = get_db_connection()
     cur = conn.execute(
-        "INSERT INTO food_posts (user_id, title, location_text, tag, lat, lng, expiry_time) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user_id, title, location, tag, lat, lng, expiry.isoformat()),
+        "INSERT INTO food_posts (user_id, title, location_text, tag, lat, lng, expiry_time, image_url) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, title, location, tag, lat, lng, expiry.isoformat(), image_url),
     )
     post_id = cur.lastrowid
 
