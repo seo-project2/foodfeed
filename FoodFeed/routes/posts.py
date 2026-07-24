@@ -132,6 +132,12 @@ def toggle_reaction(post_id):
     if existing:
         conn.execute("DELETE FROM post_reactions WHERE id = ?", (existing["id"],))
     else:
+        if kind in ("still", "gone"):
+            other = "gone" if kind == "still" else "still"
+            conn.execute(
+                "DELETE FROM post_reactions WHERE post_id = ? AND user_id = ? AND kind = ?",
+                (post_id, user_id, other),
+            )
         conn.execute(
             "INSERT INTO post_reactions (post_id, user_id, kind) VALUES (?, ?, ?)",
             (post_id, user_id, kind),
@@ -200,9 +206,6 @@ def create_post():
             lng = float(client_lng)
         except (TypeError, ValueError):
             lat = lng = None
-    if lat is None or lng is None:
-        coords = geocode(location)
-        lat, lng = coords if coords else (None, None)
     user_id = current_user_id()
 
     conn = get_db_connection()
@@ -210,6 +213,13 @@ def create_post():
     if school_id is None:
         conn.close()
         return jsonify({"error": "join a school before posting"}), 409
+    if lat is None or lng is None:
+        center = conn.execute(
+            "SELECT center_lat, center_lng FROM schools WHERE id = ?", (school_id,)
+        ).fetchone()
+        near = (center["center_lat"], center["center_lng"]) if center else None
+        coords = geocode(location, near=near)
+        lat, lng = coords if coords else (None, None)
     cur = conn.execute(
         "INSERT INTO food_posts (user_id, school_id, title, location_text, tag, organization, lat, lng, expiry_time, image_url) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

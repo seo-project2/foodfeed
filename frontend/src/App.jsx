@@ -1646,10 +1646,15 @@ function FoodFeedInner({ me, setMe }) {
     const current = post.reactions || { otw: 0, got: 0, late: 0, gone: 0, still: 0, my: [] };
     const myList = current.my || [];
     const has = myList.includes(kind);
+    const other = kind === 'still' ? 'gone' : kind === 'gone' ? 'still' : null;
+    const hadOther = other ? myList.includes(other) : false;
     const optimistic = {
       ...current,
       [kind]: Math.max(0, (current[kind] || 0) + (has ? -1 : 1)),
-      my: has ? myList.filter((k) => k !== kind) : [...myList, kind],
+      ...(other && hadOther && !has
+        ? { [other]: Math.max(0, (current[other] || 0) - 1) }
+        : {}),
+      my: (has ? myList.filter((k) => k !== kind) : [...myList.filter((k) => k !== other), kind]),
     };
     const optimisticGone = optimistic.gone >= 2 && optimistic.gone > optimistic.still;
     applyReactionUpdate(post.id, {

@@ -22,7 +22,7 @@ ALLOWED_EMAIL_SUFFIX = ".edu"
 NOMINATIM_CONTACT_EMAIL = _env("NOMINATIM_CONTACT_EMAIL", "dev@foodfeed.local")
 
 OPENAI_API_KEY = _env("OPENAI_API_KEY")
-OPENAI_MODEL = _env("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MODEL = _env("OPENAI_MODEL", "gpt-5.4-nano")
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 DATABASE_PATH = _env("DATABASE_PATH", os.path.join(_HERE, "foodfeed.db"))
