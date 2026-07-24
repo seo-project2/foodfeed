@@ -14,6 +14,7 @@ CREATE TABLE food_posts (
     lat REAL,
     lng REAL,
     tag TEXT,
+    organization TEXT,
     expiry_time TIMESTAMP NOT NULL,
     image_url TEXT,
     moderation_score REAL,

@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, cloneElement, Component } from 'react';
-import { Home, Map, Plus, Bell, User, Camera, MapPin, Clock, ArrowLeft, Sparkles, Tag, Check, Trash2, LogOut, Locate, Search, X, Heart, Bookmark } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { useState, useEffect, useRef, useMemo, cloneElement, Component } from 'react';
+import { createPortal } from 'react-dom';
+import { Home, Map, Plus, Bell, User, Camera, MapPin, Clock, ArrowLeft, Sparkles, Tag, Check, Trash2, LogOut, Locate, Search, X, Heart, Bookmark, Users, Navigation } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Toaster, toast } from 'sonner';
 import L from 'leaflet';
@@ -175,18 +176,29 @@ function EmptyState({ icon, title, body, action }) {
   );
 }
 
-function PostCard({ post, focused, saved, onSaveToggle }) {
+function PostCard({ post, saved, onSaveToggle, onOpen }) {
   const urgent = post.minutesLeft <= 15;
   const soon = !urgent && post.minutesLeft <= 60;
   const timeColor = urgent ? colors.alert : soon ? colors.marigoldDark : colors.clover;
+  const handleKey = (e) => {
+    if (!onOpen) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onOpen(post);
+    }
+  };
   return (
     <div
       id={`post-${post.id}`}
-      className="rounded-2xl border overflow-hidden transition-shadow"
+      role={onOpen ? 'button' : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={onOpen ? () => onOpen(post) : undefined}
+      onKeyDown={onOpen ? handleKey : undefined}
+      className="rounded-2xl border overflow-hidden transition-shadow text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
       style={{
         background: colors.card,
-        borderColor: focused ? colors.marigold : colors.mist,
-        boxShadow: focused ? `0 0 0 3px ${colors.marigoldSoft}` : 'none',
+        borderColor: colors.mist,
+        cursor: onOpen ? 'pointer' : 'default',
       }}
     >
       {post.imageUrl && (
@@ -200,9 +212,17 @@ function PostCard({ post, focused, saved, onSaveToggle }) {
       )}
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
-          <h3 className="ff-display text-base font-semibold leading-snug" style={{ color: colors.ink }}>
-            {post.title}
-          </h3>
+          <div className="min-w-0 flex-1">
+            <h3 className="ff-display text-base font-semibold leading-snug" style={{ color: colors.ink }}>
+              {post.title}
+            </h3>
+            {post.organization && (
+              <div className="flex items-center gap-1 mt-1 text-xs font-medium" style={{ color: colors.marigoldDark }}>
+                <Users size={12} />
+                <span className="truncate">{post.organization}</span>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-1 shrink-0">
             {urgent && (
               <span
@@ -247,7 +267,7 @@ function PostCard({ post, focused, saved, onSaveToggle }) {
   );
 }
 
-function Field({ label, value, onChange, placeholder, icon, autoFilled, type = 'text' }) {
+function Field({ label, value, onChange, onBlur, placeholder, icon, autoFilled, type = 'text' }) {
   return (
     <label className="block">
       <div className="flex items-center justify-between mb-1">
@@ -264,12 +284,61 @@ function Field({ label, value, onChange, placeholder, icon, autoFilled, type = '
           type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
           placeholder={placeholder}
           className="flex-1 outline-none text-sm ff-body bg-transparent focus-visible:outline-none"
           style={{ color: colors.ink }}
         />
       </div>
     </label>
+  );
+}
+
+function SubmitMapClicks({ onSet }) {
+  useMapEvents({
+    click(e) { onSet(e.latlng.lat, e.latlng.lng); },
+  });
+  return null;
+}
+
+function FlyToCoords({ lat, lng }) {
+  const map = useMap();
+  useEffect(() => {
+    if (lat != null && lng != null) {
+      map.flyTo([lat, lng], Math.max(map.getZoom(), 16));
+    }
+  }, [lat, lng, map]);
+  return null;
+}
+
+function SubmitMap({ lat, lng, onSet }) {
+  const initialCenter = useMemo(
+    () => (lat != null && lng != null ? [lat, lng] : WASHU_CENTER),
+    // initial only; movements handled by FlyToCoords
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  return (
+    <div className="rounded-xl overflow-hidden border" style={{ borderColor: colors.mist, height: 200 }}>
+      <MapContainer center={initialCenter} zoom={15} style={{ height: '100%', width: '100%' }}>
+        <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
+        <SubmitMapClicks onSet={onSet} />
+        <FlyToCoords lat={lat} lng={lng} />
+        {lat != null && lng != null && (
+          <Marker
+            position={[lat, lng]}
+            draggable
+            icon={buildMarkerIcon(false)}
+            eventHandlers={{
+              dragend: (e) => {
+                const p = e.target.getLatLng();
+                onSet(p.lat, p.lng);
+              },
+            }}
+          />
+        )}
+      </MapContainer>
+    </div>
   );
 }
 
@@ -286,7 +355,7 @@ function NavButton({ icon, active, onClick, label }) {
   );
 }
 
-function ProfileScreen({ me, setMe, savedPosts, savedIds, toggleSave, notifs, posts }) {
+function ProfileScreen({ me, setMe, savedPosts, savedIds, toggleSave, notifs, posts, openPost }) {
   const btnRef = useRef(null);
 
   useEffect(() => {
@@ -386,6 +455,7 @@ function ProfileScreen({ me, setMe, savedPosts, savedIds, toggleSave, notifs, po
                 post={p}
                 saved={savedIds?.has(p.id)}
                 onSaveToggle={toggleSave}
+                onOpen={openPost}
               />
             ))}
           </div>
@@ -771,6 +841,182 @@ function AlertsScreen({ me, setScreen, notifs, setNotifs, focusPost }) {
   );
 }
 
+function PostModal({ post, saved, onSaveToggle, onClose }) {
+  const [userCoords, setUserCoords] = useState(null);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { if (!cancelled) setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
+      () => { /* silent — origin is optional */ },
+      { timeout: 6000, maximumAge: 60000 },
+    );
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  if (!post) return null;
+  const hasCoords = post.lat != null && post.lng != null;
+  const urgent = post.minutesLeft <= 15;
+  const soon = !urgent && post.minutesLeft <= 60;
+  const timeColor = urgent ? colors.alert : soon ? colors.marigoldDark : colors.clover;
+
+  let directionsHref = null;
+  if (hasCoords) {
+    const params = new URLSearchParams({
+      api: '1',
+      destination: `${post.lat},${post.lng}`,
+      travelmode: 'walking',
+    });
+    if (userCoords) params.set('origin', `${userCoords.lat},${userCoords.lng}`);
+    directionsHref = `https://www.google.com/maps/dir/?${params.toString()}`;
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center"
+      style={{ background: 'rgba(31, 42, 36, 0.5)' }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={post.title}
+    >
+      <div
+        className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl"
+        style={{ background: colors.paper }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="relative">
+          {post.imageUrl ? (
+            <img
+              src={assetUrl(post.imageUrl)}
+              alt=""
+              className="w-full h-48 object-cover rounded-t-2xl"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          ) : (
+            <div className="h-4" />
+          )}
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute top-3 right-3 rounded-full flex items-center justify-center shadow"
+            style={{ width: 32, height: 32, background: '#fff' }}
+          >
+            <X size={18} color={colors.ink} />
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <h2 className="ff-display text-lg font-semibold leading-snug" style={{ color: colors.ink }}>
+                {post.title}
+              </h2>
+              {post.organization && (
+                <div className="flex items-center gap-1 mt-1 text-sm font-medium" style={{ color: colors.marigoldDark }}>
+                  <Users size={14} />
+                  <span>{post.organization}</span>
+                </div>
+              )}
+            </div>
+            {onSaveToggle && (
+              <button
+                onClick={() => onSaveToggle(post)}
+                className="p-2 rounded-full shrink-0"
+                aria-label={saved ? 'Unsave' : 'Save'}
+                aria-pressed={saved}
+              >
+                <Heart
+                  size={22}
+                  color={saved ? colors.alert : colors.inkSoft}
+                  fill={saved ? colors.alert : 'none'}
+                />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 text-sm" style={{ color: colors.inkSoft }}>
+            <MapPin size={14} />
+            <span>{post.location}</span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1 text-sm font-medium" style={{ color: timeColor }}>
+              <Clock size={14} />
+              <span>{formatMinutes(post.minutesLeft)}</span>
+            </div>
+            {post.tag && (
+              <span className="text-xs font-medium px-2 py-1 rounded-full" style={{ background: colors.cloverSoft, color: colors.clover }}>
+                {post.tag}
+              </span>
+            )}
+          </div>
+
+          {hasCoords ? (
+            <div className="rounded-xl overflow-hidden border" style={{ borderColor: colors.mist, height: 190 }}>
+              <MapContainer
+                center={[post.lat, post.lng]}
+                zoom={16}
+                dragging={false}
+                zoomControl={false}
+                scrollWheelZoom={false}
+                doubleClickZoom={false}
+                touchZoom={false}
+                keyboard={false}
+                style={{ height: '100%', width: '100%' }}
+              >
+                <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
+                <Marker position={[post.lat, post.lng]} icon={buildMarkerIcon(urgent)} />
+              </MapContainer>
+            </div>
+          ) : (
+            <div
+              className="rounded-xl border text-sm px-3 py-4 text-center"
+              style={{ borderColor: colors.mist, background: '#fff', color: colors.inkSoft }}
+            >
+              Pin not set
+            </div>
+          )}
+
+          {hasCoords ? (
+            <a
+              href={directionsHref}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full rounded-xl py-3 font-semibold ff-body text-sm flex items-center justify-center gap-2"
+              style={{ background: colors.marigold, color: '#fff' }}
+            >
+              <Navigation size={16} />
+              Get directions
+            </a>
+          ) : (
+            <button
+              disabled
+              className="w-full rounded-xl py-3 font-semibold ff-body text-sm flex items-center justify-center gap-2 opacity-40"
+              style={{ background: colors.marigold, color: '#fff' }}
+            >
+              <Navigation size={16} />
+              Get directions
+            </button>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 const PATH_TO_SCREEN = {
   '/': 'home',
   '/post': 'post',
@@ -785,26 +1031,32 @@ export default function FoodFeed() {
   const location = useLocation();
   const pathMatch = location.pathname.match(/^\/posts\/(\d+)/);
   const deepLinkPostId = pathMatch ? parseInt(pathMatch[1], 10) : null;
-  const screenFromPath = deepLinkPostId ? 'home' : (PATH_TO_SCREEN[location.pathname] || 'home');
+  const screenFromPath = deepLinkPostId ? null : (PATH_TO_SCREEN[location.pathname] || 'home');
+  const [lastScreen, setLastScreen] = useState(screenFromPath || 'home');
+  useEffect(() => {
+    if (screenFromPath) setLastScreen(screenFromPath);
+  }, [screenFromPath]);
+  const screen = screenFromPath || lastScreen;
   const setScreen = (next) => {
     const path = SCREEN_TO_PATH[next] || '/';
     if (location.pathname !== path) navigate(path);
   };
-  const screen = screenFromPath;
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [scanState, setScanState] = useState('idle');
-  const [form, setForm] = useState({ title: '', location: '', minutes: '', tag: '' });
+  const [form, setForm] = useState({ title: '', location: '', minutes: '', tag: '', organization: '', lat: null, lng: null });
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [me, setMe] = useState(null);
   const [notifs, setNotifs] = useState([]);
-  const [focusedPostId, setFocusedPostId] = useState(null);
   const [q, setQ] = useState('');
   const [tag, setTag] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [savedIds, setSavedIds] = useState(new Set());
   const [savedPosts, setSavedPosts] = useState([]);
+  const [geocodingLoc, setGeocodingLoc] = useState(false);
+  const [pinLocating, setPinLocating] = useState(false);
+  const lastGeocodedRef = useRef('');
   const fileInput = useRef(null);
   const unreadCount = notifs.filter((n) => !n.read_at).length;
   const filtering = !!(debouncedQ || tag);
@@ -854,16 +1106,38 @@ export default function FoodFeed() {
     navigate(`/posts/${postId}`);
   };
 
+  const openPost = (post) => {
+    navigate(`/posts/${post.id}`);
+  };
+
+  const closeModal = () => {
+    if (location.key === 'default') {
+      navigate('/', { replace: true });
+    } else {
+      navigate(-1);
+    }
+  };
+
+  const [modalPost, setModalPost] = useState(null);
+
   useEffect(() => {
-    if (!deepLinkPostId) return;
-    setFocusedPostId(deepLinkPostId);
-    const scrollT = setTimeout(() => {
-      const el = document.getElementById(`post-${deepLinkPostId}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
-    const clearT = setTimeout(() => setFocusedPostId(null), 3000);
-    return () => { clearTimeout(scrollT); clearTimeout(clearT); };
-  }, [deepLinkPostId, posts.length]);
+    if (!deepLinkPostId) { setModalPost(null); return; }
+    const inList = posts.find((p) => p.id === deepLinkPostId)
+      || savedPosts.find((p) => p.id === deepLinkPostId);
+    if (inList) {
+      setModalPost(inList);
+      return;
+    }
+    let cancelled = false;
+    api(`/api/posts/${deepLinkPostId}`)
+      .then((p) => { if (!cancelled) setModalPost(p); })
+      .catch((err) => {
+        if (cancelled) return;
+        toast.error(err.friendly || 'Couldn’t load that post.');
+        navigate('/', { replace: true });
+      });
+    return () => { cancelled = true; };
+  }, [deepLinkPostId, posts, savedPosts, navigate]);
 
   useEffect(() => {
     if (!photoFile) { setPhotoPreview(null); return; }
@@ -889,7 +1163,7 @@ export default function FoodFeed() {
   }, [debouncedQ, tag]);
 
   const resetForm = () => {
-    setForm({ title: '', location: '', minutes: '', tag: '' });
+    setForm({ title: '', location: '', minutes: '', tag: '', organization: '', lat: null, lng: null });
     setPhotoFile(null);
     setScanState('idle');
   };
@@ -918,17 +1192,61 @@ export default function FoodFeed() {
     fd.append('image', file);
     try {
       const r = await api('/api/posts/scan', { method: 'POST', body: fd });
-      setForm({
+      setForm((prev) => ({
+        ...prev,
         title: r.title || '',
         location: r.location || '',
         minutes: r.minutes != null ? String(r.minutes) : '',
         tag: r.tag || '',
-      });
+        organization: r.organization || '',
+      }));
       setScanState('done');
+      if (r.location) runGeocode(r.location);
     } catch (err) {
       setScanState('idle');
       toast.error(`Couldn’t read the flyer — fill it in manually. (${err.friendly || err.message})`);
     }
+  };
+
+  const runGeocode = async (text) => {
+    const q = (text || '').trim();
+    if (!q || q === lastGeocodedRef.current) return;
+    lastGeocodedRef.current = q;
+    setGeocodingLoc(true);
+    try {
+      const r = await api(`/api/geocode?q=${encodeURIComponent(q)}`);
+      if (r && typeof r.lat === 'number' && typeof r.lng === 'number') {
+        setForm((prev) => ({ ...prev, lat: r.lat, lng: r.lng }));
+      }
+    } catch {
+      /* miss is fine — user can drop the pin manually */
+    } finally {
+      setGeocodingLoc(false);
+    }
+  };
+
+  const geocodeOnBlur = () => {
+    if (form.lat != null && form.lng != null) return;
+    runGeocode(form.location);
+  };
+
+  const useMyLocationForPin = () => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation not available in this browser.');
+      return;
+    }
+    setPinLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setPinLocating(false);
+        setForm((prev) => ({ ...prev, lat: pos.coords.latitude, lng: pos.coords.longitude }));
+      },
+      () => {
+        setPinLocating(false);
+        toast.error('Couldn’t locate you.');
+      },
+      { timeout: 8000, maximumAge: 60000 }
+    );
   };
 
   const submitPost = async () => {
@@ -943,6 +1261,11 @@ export default function FoodFeed() {
       fd.append('location', form.location.trim());
       fd.append('minutes', String(Number(form.minutes) || 30));
       if (form.tag.trim()) fd.append('tag', form.tag.trim());
+      if (form.organization.trim()) fd.append('organization', form.organization.trim());
+      if (form.lat != null && form.lng != null) {
+        fd.append('lat', String(form.lat));
+        fd.append('lng', String(form.lng));
+      }
       if (photoFile) fd.append('image', photoFile);
       const newPost = await api('/api/posts', { method: 'POST', body: fd });
       setPosts([newPost, ...posts]);
@@ -1014,9 +1337,9 @@ export default function FoodFeed() {
               <PostCard
                 key={p.id}
                 post={p}
-                focused={focusedPostId === p.id}
                 saved={savedIds.has(p.id)}
                 onSaveToggle={toggleSave}
+                onOpen={openPost}
               />
             ))}
           </main>
@@ -1079,8 +1402,42 @@ export default function FoodFeed() {
 
             <div className="mt-6 space-y-4">
               <Field label="Title" value={form.title} onChange={(v) => setForm({ ...form, title: v })} placeholder="e.g. Free pizza — club mixer" autoFilled={scanState === 'done'} />
-              <Field label="Location" value={form.location} onChange={(v) => setForm({ ...form, location: v })} placeholder="e.g. Simon Hall lobby" icon={<MapPin size={14} />} autoFilled={scanState === 'done'} />
+              <Field
+                label="Location"
+                value={form.location}
+                onChange={(v) => setForm({ ...form, location: v })}
+                onBlur={geocodeOnBlur}
+                placeholder="e.g. Simon Hall lobby"
+                icon={<MapPin size={14} />}
+                autoFilled={scanState === 'done'}
+              />
+              <div>
+                <div className="text-xs font-medium mb-1" style={{ color: colors.inkSoft }}>
+                  Pin location {geocodingLoc && <span>· looking up…</span>}
+                </div>
+                <SubmitMap
+                  lat={form.lat}
+                  lng={form.lng}
+                  onSet={(lat, lng) => setForm((prev) => ({ ...prev, lat, lng }))}
+                />
+                <button
+                  type="button"
+                  onClick={useMyLocationForPin}
+                  disabled={pinLocating}
+                  className="mt-2 w-full rounded-xl border px-3 py-2 text-sm flex items-center gap-2 disabled:opacity-60"
+                  style={{ borderColor: colors.mist, background: '#fff', color: colors.ink }}
+                >
+                  <Locate size={14} color={colors.inkSoft} />
+                  <span>{pinLocating ? 'Locating…' : 'Use my location'}</span>
+                </button>
+                <div className="text-xs mt-1" style={{ color: colors.inkSoft }}>
+                  {form.lat != null && form.lng != null
+                    ? <>Pin: {form.lat.toFixed(5)}, {form.lng.toFixed(5)} — drag to correct</>
+                    : <>Tap the map, drag a pin, or use “Use my location.” Left unset, we'll try to guess from the text.</>}
+                </div>
+              </div>
               <Field label="Expires in (minutes)" value={form.minutes} onChange={(v) => setForm({ ...form, minutes: v })} placeholder="e.g. 30" icon={<Clock size={14} />} autoFilled={scanState === 'done'} type="number" />
+              <Field label="Organization (optional)" value={form.organization} onChange={(v) => setForm({ ...form, organization: v })} placeholder="e.g. Chinese Student Association" icon={<Users size={14} />} autoFilled={scanState === 'done' && !!form.organization} />
               <Field label="Tag (optional)" value={form.tag} onChange={(v) => setForm({ ...form, tag: v })} placeholder="e.g. pizza, halal, vegan" icon={<Tag size={14} />} />
             </div>
 
@@ -1114,6 +1471,16 @@ export default function FoodFeed() {
             toggleSave={toggleSave}
             notifs={notifs}
             posts={posts}
+            openPost={openPost}
+          />
+        )}
+
+        {deepLinkPostId && modalPost && (
+          <PostModal
+            post={modalPost}
+            saved={savedIds.has(modalPost.id)}
+            onSaveToggle={me ? toggleSave : null}
+            onClose={closeModal}
           />
         )}
 

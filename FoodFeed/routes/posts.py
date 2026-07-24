@@ -32,8 +32,9 @@ SCAN_SYSTEM_PROMPT = (
     "campus food flyer image. Return strict JSON with keys `title` "
     "(short, one line), `location` (building/room), `minutes` (int, how "
     "long the food will be available), `tag` (single lowercase word "
-    "describing the food). Return null for any field you cannot find "
-    "with confidence."
+    "describing the food), `organization` (student group, department, "
+    "or office hosting the event; null if not printed). Return null "
+    "for any field you cannot find with confidence."
 )
 
 
@@ -44,7 +45,7 @@ def list_posts():
     tag = (request.args.get("tag") or "").strip()
 
     sql = (
-        "SELECT id, title, location_text, tag, lat, lng, image_url, expiry_time "
+        "SELECT id, title, location_text, tag, organization, lat, lng, image_url, expiry_time "
         "FROM food_posts WHERE expiry_time > ?"
     )
     params = [now]
@@ -68,7 +69,7 @@ def list_map_posts():
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, title, location_text, tag, lat, lng, image_url, expiry_time "
+        "SELECT id, title, location_text, tag, organization, lat, lng, image_url, expiry_time "
         "FROM food_posts "
         "WHERE expiry_time > ? AND lat IS NOT NULL AND lng IS NOT NULL "
         "ORDER BY expiry_time ASC",
@@ -82,7 +83,7 @@ def list_map_posts():
 def get_post(post_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id, title, location_text, tag, lat, lng, image_url, expiry_time "
+        "SELECT id, title, location_text, tag, organization, lat, lng, image_url, expiry_time "
         "FROM food_posts WHERE id = ?",
         (post_id,),
     ).fetchone()
@@ -100,6 +101,9 @@ def create_post():
         location = (request.form.get("location") or "").strip()
         minutes = request.form.get("minutes")
         tag = (request.form.get("tag") or "").strip() or None
+        organization = (request.form.get("organization") or "").strip() or None
+        client_lat = request.form.get("lat")
+        client_lng = request.form.get("lng")
         image_file = request.files.get("image")
     else:
         body = request.get_json(silent=True) or {}
@@ -107,6 +111,9 @@ def create_post():
         location = (body.get("location") or "").strip()
         minutes = body.get("minutes")
         tag = (body.get("tag") or "").strip() or None
+        organization = (body.get("organization") or "").strip() or None
+        client_lat = body.get("lat")
+        client_lng = body.get("lng")
         image_file = None
 
     if not title or not location:
@@ -136,15 +143,24 @@ def create_post():
         image_url = f"/uploads/{fname}"
 
     expiry = datetime.now(timezone.utc) + timedelta(minutes=minutes_int)
-    coords = geocode(location)
-    lat, lng = coords if coords else (None, None)
+
+    lat = lng = None
+    if client_lat is not None and client_lng is not None:
+        try:
+            lat = float(client_lat)
+            lng = float(client_lng)
+        except (TypeError, ValueError):
+            lat = lng = None
+    if lat is None or lng is None:
+        coords = geocode(location)
+        lat, lng = coords if coords else (None, None)
     user_id = current_user_id()
 
     conn = get_db_connection()
     cur = conn.execute(
-        "INSERT INTO food_posts (user_id, title, location_text, tag, lat, lng, expiry_time, image_url) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (user_id, title, location, tag, lat, lng, expiry.isoformat(), image_url),
+        "INSERT INTO food_posts (user_id, title, location_text, tag, organization, lat, lng, expiry_time, image_url) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, title, location, tag, organization, lat, lng, expiry.isoformat(), image_url),
     )
     post_id = cur.lastrowid
 
@@ -175,7 +191,7 @@ def create_post():
 
     conn.commit()
     row = conn.execute(
-        "SELECT id, title, location_text, tag, lat, lng, image_url, expiry_time "
+        "SELECT id, title, location_text, tag, organization, lat, lng, image_url, expiry_time "
         "FROM food_posts WHERE id = ?",
         (post_id,),
     ).fetchone()
@@ -232,6 +248,7 @@ def scan_flyer():
         "location": parsed.get("location"),
         "minutes": parsed.get("minutes"),
         "tag": parsed.get("tag"),
+        "organization": parsed.get("organization"),
     })
 
 
@@ -245,6 +262,7 @@ def _to_feed_item(row):
         "title": row["title"],
         "location": row["location_text"],
         "tag": row["tag"],
+        "organization": row["organization"],
         "minutesLeft": minutes_left,
         "imageUrl": row["image_url"],
     }

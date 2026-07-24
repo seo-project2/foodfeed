@@ -47,7 +47,7 @@ def list_saved():
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT p.id, p.title, p.location_text, p.tag, p.lat, p.lng, p.image_url, p.expiry_time, s.saved_at "
+        "SELECT p.id, p.title, p.location_text, p.tag, p.organization, p.lat, p.lng, p.image_url, p.expiry_time, s.saved_at "
         "FROM saved_posts s JOIN food_posts p ON p.id = s.post_id "
         "WHERE s.user_id = ? AND p.expiry_time > ? "
         "ORDER BY s.saved_at DESC",
@@ -70,6 +70,7 @@ def list_saved():
             "title": row["title"],
             "location": row["location_text"],
             "tag": row["tag"],
+            "organization": row["organization"],
             "minutesLeft": minutes_left,
             "imageUrl": row["image_url"],
             "lat": row["lat"],
