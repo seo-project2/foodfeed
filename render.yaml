@@ -20,7 +20,7 @@ services:
       - key: UPLOAD_DIR
         value: /data/uploads
       - key: OPENAI_MODEL
-        value: gpt-4o-mini
+        value: gpt-5.4-nano
       - key: SECRET_KEY
         sync: false
       - key: GOOGLE_CLIENT_ID

@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify
 
 from ..auth import current_user_id, require_auth
 from ..databases import get_db_connection
+from .posts import _reactions_by_post, _to_feed_item
 
 bp = Blueprint("saved", __name__)
 
@@ -65,25 +66,9 @@ def list_saved():
         "WHERE s.user_id = ? AND p.school_id = ?",
         (user_id, school_id),
     ).fetchall()
+    reactions = _reactions_by_post(conn, [r["id"] for r in rows], user_id)
     conn.close()
-
-    posts = []
-    for row in rows:
-        expiry = datetime.fromisoformat(row["expiry_time"])
-        if expiry.tzinfo is None:
-            expiry = expiry.replace(tzinfo=timezone.utc)
-        minutes_left = max(0, int((expiry - datetime.now(timezone.utc)).total_seconds() // 60))
-        posts.append({
-            "id": row["id"],
-            "title": row["title"],
-            "location": row["location_text"],
-            "tag": row["tag"],
-            "organization": row["organization"],
-            "minutesLeft": minutes_left,
-            "imageUrl": row["image_url"],
-            "lat": row["lat"],
-            "lng": row["lng"],
-        })
+    posts = [_to_feed_item(r, reactions.get(r["id"])) for r in rows]
     return jsonify({
         "posts": posts,
         "ids": [r["post_id"] for r in ids],
