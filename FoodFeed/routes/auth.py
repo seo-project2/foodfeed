@@ -45,26 +45,15 @@ def google_sign_in():
         )
         conn.commit()
 
-    user_row = conn.execute(
-        "SELECT id, email, name, edu_verified FROM users WHERE id = ?",
-        (user_id,),
-    ).fetchone()
+    from .me import _me_payload
+    payload = _me_payload(conn, user_id)
     conn.close()
 
     session["user_id"] = user_id
-    return jsonify(_to_user(user_row))
+    return jsonify(payload)
 
 
 @bp.post("/logout")
 def logout():
     session.pop("user_id", None)
     return "", 204
-
-
-def _to_user(row):
-    return {
-        "id": row["id"],
-        "email": row["email"],
-        "name": row["name"],
-        "edu_verified": bool(row["edu_verified"]),
-    }

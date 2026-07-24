@@ -2,6 +2,7 @@ import os
 import sqlite3
 
 from .config import DATABASE_PATH
+from .seed_schools import seed_schools
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_FILE = os.path.join(HERE, "schema.sql")
@@ -9,7 +10,7 @@ MIGRATIONS_DIR = os.path.join(HERE, "migrations")
 
 SEED_USER_ID = "dev-seed-user"
 
-DROP_ORDER = ("saved_posts", "notifications", "subscriptions", "food_posts", "users")
+DROP_ORDER = ("saved_posts", "notifications", "subscriptions", "food_posts", "users", "schools")
 
 
 def _ensure_db_dir():
@@ -46,8 +47,12 @@ def ensure_schema():
                 "INSERT OR IGNORE INTO users (id, email, name, edu_verified) VALUES (?, ?, ?, ?)",
                 (SEED_USER_ID, "dev@wustl.edu", "Dev Seed", 1),
             )
+            seed_schools(conn)
             conn.commit()
         _run_migrations(conn)
+        if _table_exists(conn, "schools"):
+            seed_schools(conn)
+            conn.commit()
     finally:
         conn.close()
 
@@ -83,6 +88,7 @@ def init_db():
         "INSERT OR IGNORE INTO users (id, email, name, edu_verified) VALUES (?, ?, ?, ?)",
         (SEED_USER_ID, "dev@wustl.edu", "Dev Seed", 1),
     )
+    seed_schools(conn)
     conn.commit()
     _run_migrations(conn)
     conn.close()

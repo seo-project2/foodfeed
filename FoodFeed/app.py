@@ -11,6 +11,7 @@ from .routes.me import bp as me_bp
 from .routes.notifications import bp as notifications_bp
 from .routes.posts import bp as posts_bp
 from .routes.saved import bp as saved_bp
+from .routes.schools import bp as schools_bp
 from .routes.subscriptions import bp as subscriptions_bp
 
 
@@ -35,6 +36,7 @@ def create_app():
     app.register_blueprint(me_bp)
     app.register_blueprint(notifications_bp)
     app.register_blueprint(saved_bp)
+    app.register_blueprint(schools_bp)
     app.register_blueprint(geo_bp)
 
     @app.get("/uploads/<path:filename>")

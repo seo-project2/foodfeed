@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, cloneElement, Component } from 'react';
+import { useState, useEffect, useRef, useMemo, cloneElement, createContext, useContext, Component } from 'react';
 import { createPortal } from 'react-dom';
 import { Home, Map, Plus, Bell, User, Camera, MapPin, Clock, ArrowLeft, Sparkles, Tag, Check, Trash2, LogOut, Locate, Search, X, Heart, Bookmark, Users, Navigation } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
@@ -16,19 +16,46 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-const colors = {
+const DEFAULT_THEME = {
   paper: '#FBFAF7',
   ink: '#1F2A24',
   inkSoft: '#6B756F',
   marigold: '#F4A61A',
   marigoldDark: '#C97F0A',
   marigoldSoft: '#FCEBC7',
+  marigoldOn: '#FFFFFF',
   clover: '#2F6B4F',
   cloverSoft: '#E7F0EA',
   alert: '#E2542D',
   mist: '#E7E3D8',
   card: '#FFFFFF',
 };
+
+const ThemeContext = createContext(DEFAULT_THEME);
+function useTheme() { return useContext(ThemeContext); }
+
+function darkenHex(hex, amount = 0.15) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+  if (!m) return hex;
+  const clamp = (v) => Math.max(0, Math.min(255, Math.round(v)));
+  const r = clamp(parseInt(m[1], 16) * (1 - amount));
+  const g = clamp(parseInt(m[2], 16) * (1 - amount));
+  const b = clamp(parseInt(m[3], 16) * (1 - amount));
+  const hh = (n) => n.toString(16).padStart(2, '0');
+  return `#${hh(r)}${hh(g)}${hh(b)}`;
+}
+
+function themeFromMe(me) {
+  if (!me?.school) return DEFAULT_THEME;
+  const s = me.school;
+  return {
+    ...DEFAULT_THEME,
+    marigold: s.primary_color,
+    marigoldDark: darkenHex(s.primary_color, 0.15),
+    marigoldSoft: s.primary_soft,
+    marigoldOn: s.on_primary,
+  };
+}
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -109,20 +136,21 @@ function relativeTime(iso) {
 const CANONICAL_TAGS = ['pizza', 'bagels', 'chicken', 'donuts', 'sushi', 'salad', 'pastries', 'tacos'];
 
 function FilterBar({ q, setQ, tag, setTag }) {
+  const theme = useTheme();
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2 rounded-xl border px-3 py-2" style={{ borderColor: colors.mist, background: '#fff' }}>
-        <Search size={14} color={colors.inkSoft} />
+      <div className="flex items-center gap-2 rounded-xl border px-3 py-2" style={{ borderColor: theme.mist, background: '#fff' }}>
+        <Search size={14} color={theme.inkSoft} />
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search sightings…"
           className="flex-1 outline-none text-sm ff-body bg-transparent focus-visible:outline-none"
-          style={{ color: colors.ink }}
+          style={{ color: theme.ink }}
           aria-label="Search"
         />
         {q && (
-          <button onClick={() => setQ('')} aria-label="Clear search" style={{ color: colors.inkSoft }}>
+          <button onClick={() => setQ('')} aria-label="Clear search" style={{ color: theme.inkSoft }}>
             <X size={14} />
           </button>
         )}
@@ -136,9 +164,9 @@ function FilterBar({ q, setQ, tag, setTag }) {
               onClick={() => setTag(active ? '' : t)}
               className="text-xs font-medium px-3 py-1 rounded-full whitespace-nowrap border transition"
               style={{
-                background: active ? colors.marigold : '#fff',
-                color: active ? '#fff' : colors.ink,
-                borderColor: active ? colors.marigold : colors.mist,
+                background: active ? theme.marigold : '#fff',
+                color: active ? '#fff' : theme.ink,
+                borderColor: active ? theme.marigold : theme.mist,
               }}
             >
               {t}
@@ -151,23 +179,24 @@ function FilterBar({ q, setQ, tag, setTag }) {
 }
 
 function EmptyState({ icon, title, body, action }) {
+  const theme = useTheme();
   return (
     <div className="text-center py-12 px-6">
       {icon && (
         <div
           className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
-          style={{ background: colors.marigoldSoft }}
+          style={{ background: theme.marigoldSoft }}
         >
           {icon}
         </div>
       )}
-      <h3 className="ff-display text-base font-semibold mb-1" style={{ color: colors.ink }}>{title}</h3>
-      {body && <p className="text-sm mb-4" style={{ color: colors.inkSoft }}>{body}</p>}
+      <h3 className="ff-display text-base font-semibold mb-1" style={{ color: theme.ink }}>{title}</h3>
+      {body && <p className="text-sm mb-4" style={{ color: theme.inkSoft }}>{body}</p>}
       {action && (
         <button
           onClick={action.onClick}
           className="rounded-xl py-2 px-5 font-semibold ff-body text-sm"
-          style={{ background: colors.marigold, color: '#fff' }}
+          style={{ background: theme.marigold, color: '#fff' }}
         >
           {action.label}
         </button>
@@ -177,9 +206,10 @@ function EmptyState({ icon, title, body, action }) {
 }
 
 function PostCard({ post, saved, onSaveToggle, onOpen }) {
+  const theme = useTheme();
   const urgent = post.minutesLeft <= 15;
   const soon = !urgent && post.minutesLeft <= 60;
-  const timeColor = urgent ? colors.alert : soon ? colors.marigoldDark : colors.clover;
+  const timeColor = urgent ? theme.alert : soon ? theme.marigoldDark : theme.clover;
   const handleKey = (e) => {
     if (!onOpen) return;
     if (e.key === 'Enter' || e.key === ' ') {
@@ -196,8 +226,8 @@ function PostCard({ post, saved, onSaveToggle, onOpen }) {
       onKeyDown={onOpen ? handleKey : undefined}
       className="rounded-2xl border overflow-hidden transition-shadow text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
       style={{
-        background: colors.card,
-        borderColor: colors.mist,
+        background: theme.card,
+        borderColor: theme.mist,
         cursor: onOpen ? 'pointer' : 'default',
       }}
     >
@@ -213,11 +243,11 @@ function PostCard({ post, saved, onSaveToggle, onOpen }) {
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <h3 className="ff-display text-base font-semibold leading-snug" style={{ color: colors.ink }}>
+            <h3 className="ff-display text-base font-semibold leading-snug" style={{ color: theme.ink }}>
               {post.title}
             </h3>
             {post.organization && (
-              <div className="flex items-center gap-1 mt-1 text-xs font-medium" style={{ color: colors.marigoldDark }}>
+              <div className="flex items-center gap-1 mt-1 text-xs font-medium" style={{ color: theme.marigoldDark }}>
                 <Users size={12} />
                 <span className="truncate">{post.organization}</span>
               </div>
@@ -227,7 +257,7 @@ function PostCard({ post, saved, onSaveToggle, onOpen }) {
             {urgent && (
               <span
                 className="w-2 h-2 rounded-full mt-2 ff-pulse"
-                style={{ background: colors.alert }}
+                style={{ background: theme.alert }}
                 aria-label="Expiring soon"
               />
             )}
@@ -240,14 +270,14 @@ function PostCard({ post, saved, onSaveToggle, onOpen }) {
               >
                 <Heart
                   size={18}
-                  color={saved ? colors.alert : colors.inkSoft}
-                  fill={saved ? colors.alert : 'none'}
+                  color={saved ? theme.alert : theme.inkSoft}
+                  fill={saved ? theme.alert : 'none'}
                 />
               </button>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1 mt-2 text-sm" style={{ color: colors.inkSoft }}>
+        <div className="flex items-center gap-1 mt-2 text-sm" style={{ color: theme.inkSoft }}>
           <MapPin size={14} />
           <span>{post.location}</span>
         </div>
@@ -257,7 +287,7 @@ function PostCard({ post, saved, onSaveToggle, onOpen }) {
             <span>{formatMinutes(post.minutesLeft)}</span>
           </div>
           {post.tag && (
-            <span className="text-xs font-medium px-2 py-1 rounded-full" style={{ background: colors.cloverSoft, color: colors.clover }}>
+            <span className="text-xs font-medium px-2 py-1 rounded-full" style={{ background: theme.cloverSoft, color: theme.clover }}>
               {post.tag}
             </span>
           )}
@@ -268,18 +298,19 @@ function PostCard({ post, saved, onSaveToggle, onOpen }) {
 }
 
 function Field({ label, value, onChange, onBlur, placeholder, icon, autoFilled, type = 'text' }) {
+  const theme = useTheme();
   return (
     <label className="block">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-medium" style={{ color: colors.inkSoft }}>{label}</span>
+        <span className="text-xs font-medium" style={{ color: theme.inkSoft }}>{label}</span>
         {autoFilled && (
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: colors.marigoldSoft, color: colors.marigoldDark }}>
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: theme.marigoldSoft, color: theme.marigoldDark }}>
             auto-filled
           </span>
         )}
       </div>
-      <div className="flex items-center gap-2 rounded-xl border px-3 py-2" style={{ borderColor: colors.mist, background: '#fff' }}>
-        {icon && <span style={{ color: colors.inkSoft }}>{icon}</span>}
+      <div className="flex items-center gap-2 rounded-xl border px-3 py-2" style={{ borderColor: theme.mist, background: '#fff' }}>
+        {icon && <span style={{ color: theme.inkSoft }}>{icon}</span>}
         <input
           type={type}
           value={value}
@@ -287,7 +318,7 @@ function Field({ label, value, onChange, onBlur, placeholder, icon, autoFilled, 
           onBlur={onBlur}
           placeholder={placeholder}
           className="flex-1 outline-none text-sm ff-body bg-transparent focus-visible:outline-none"
-          style={{ color: colors.ink }}
+          style={{ color: theme.ink }}
         />
       </div>
     </label>
@@ -312,6 +343,7 @@ function FlyToCoords({ lat, lng }) {
 }
 
 function SubmitMap({ lat, lng, onSet }) {
+  const theme = useTheme();
   const initialCenter = useMemo(
     () => (lat != null && lng != null ? [lat, lng] : WASHU_CENTER),
     // initial only; movements handled by FlyToCoords
@@ -319,7 +351,7 @@ function SubmitMap({ lat, lng, onSet }) {
     [],
   );
   return (
-    <div className="rounded-xl overflow-hidden border" style={{ borderColor: colors.mist, height: 200 }}>
+    <div className="rounded-xl overflow-hidden border" style={{ borderColor: theme.mist, height: 200 }}>
       <MapContainer center={initialCenter} zoom={15} style={{ height: '100%', width: '100%' }}>
         <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
         <SubmitMapClicks onSet={onSet} />
@@ -328,7 +360,7 @@ function SubmitMap({ lat, lng, onSet }) {
           <Marker
             position={[lat, lng]}
             draggable
-            icon={buildMarkerIcon(false)}
+            icon={buildMarkerIcon(false, theme.marigold)}
             eventHandlers={{
               dragend: (e) => {
                 const p = e.target.getLatLng();
@@ -343,6 +375,7 @@ function SubmitMap({ lat, lng, onSet }) {
 }
 
 function NavButton({ icon, active, onClick, label }) {
+  const theme = useTheme();
   return (
     <button
       onClick={onClick}
@@ -350,12 +383,13 @@ function NavButton({ icon, active, onClick, label }) {
       aria-label={label}
       className="p-2 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
     >
-      {cloneElement(icon, { color: active ? colors.marigold : colors.inkSoft })}
+      {cloneElement(icon, { color: active ? theme.marigold : theme.inkSoft })}
     </button>
   );
 }
 
 function ProfileScreen({ me, setMe, savedPosts, savedIds, toggleSave, notifs, posts, openPost }) {
+  const theme = useTheme();
   const btnRef = useRef(null);
 
   useEffect(() => {
@@ -409,11 +443,11 @@ function ProfileScreen({ me, setMe, savedPosts, savedIds, toggleSave, notifs, po
   if (!me) {
     return (
       <main className="flex-1 flex flex-col items-center justify-center px-8 text-center">
-        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: colors.cloverSoft }}>
-          <User size={26} color={colors.clover} />
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: theme.cloverSoft }}>
+          <User size={26} color={theme.clover} />
         </div>
-        <h2 className="ff-display text-base font-semibold mb-1" style={{ color: colors.ink }}>Sign in to FoodFeed</h2>
-        <p className="text-sm mb-6" style={{ color: colors.inkSoft }}>Use your .edu Google account to post sightings and set up alerts.</p>
+        <h2 className="ff-display text-base font-semibold mb-1" style={{ color: theme.ink }}>Sign in to FoodFeed</h2>
+        <p className="text-sm mb-6" style={{ color: theme.inkSoft }}>Use your .edu Google account to post sightings and set up alerts.</p>
         <div ref={btnRef} />
       </main>
     );
@@ -425,26 +459,26 @@ function ProfileScreen({ me, setMe, savedPosts, savedIds, toggleSave, notifs, po
 
   return (
     <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-      <div className="rounded-2xl border p-5" style={{ background: colors.card, borderColor: colors.mist }}>
+      <div className="rounded-2xl border p-5" style={{ background: theme.card, borderColor: theme.mist }}>
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: colors.marigoldSoft }}>
-            <User size={22} color={colors.marigoldDark} />
+          <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: theme.marigoldSoft }}>
+            <User size={22} color={theme.marigoldDark} />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="ff-display font-semibold truncate" style={{ color: colors.ink }}>{me.name || 'Signed in'}</div>
-            <div className="text-sm truncate" style={{ color: colors.inkSoft }}>{me.email}</div>
+            <div className="ff-display font-semibold truncate" style={{ color: theme.ink }}>{me.name || 'Signed in'}</div>
+            <div className="text-sm truncate" style={{ color: theme.inkSoft }}>{me.email}</div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-2">
-        <StatTile label="Saved" value={savedCount} color={colors.alert} />
-        <StatTile label="Alerts" value={alertsTriggered} color={colors.marigoldDark} />
-        <StatTile label="Posts" value={postsCreated} color={colors.clover} />
+        <StatTile label="Saved" value={savedCount} color={theme.alert} />
+        <StatTile label="Alerts" value={alertsTriggered} color={theme.marigoldDark} />
+        <StatTile label="Posts" value={postsCreated} color={theme.clover} />
       </div>
 
       <section>
-        <h2 className="ff-display text-sm font-semibold mb-2 flex items-center gap-1" style={{ color: colors.ink }}>
+        <h2 className="ff-display text-sm font-semibold mb-2 flex items-center gap-1" style={{ color: theme.ink }}>
           <Bookmark size={14} /> Saved
         </h2>
         {savedPosts && savedPosts.length > 0 ? (
@@ -460,7 +494,7 @@ function ProfileScreen({ me, setMe, savedPosts, savedIds, toggleSave, notifs, po
             ))}
           </div>
         ) : (
-          <p className="text-sm" style={{ color: colors.inkSoft }}>
+          <p className="text-sm" style={{ color: theme.inkSoft }}>
             Nothing saved yet — tap the heart on a post to keep it here.
           </p>
         )}
@@ -469,7 +503,7 @@ function ProfileScreen({ me, setMe, savedPosts, savedIds, toggleSave, notifs, po
       <button
         onClick={signOut}
         className="w-full rounded-xl py-3 font-semibold ff-body text-sm flex items-center justify-center gap-2 border"
-        style={{ background: '#fff', color: colors.ink, borderColor: colors.mist }}
+        style={{ background: '#fff', color: theme.ink, borderColor: theme.mist }}
       >
         <LogOut size={16} />
         Sign out
@@ -479,16 +513,17 @@ function ProfileScreen({ me, setMe, savedPosts, savedIds, toggleSave, notifs, po
 }
 
 function StatTile({ label, value, color }) {
+  const theme = useTheme();
   return (
-    <div className="rounded-2xl border p-3 text-center" style={{ background: colors.card, borderColor: colors.mist }}>
+    <div className="rounded-2xl border p-3 text-center" style={{ background: theme.card, borderColor: theme.mist }}>
       <div className="ff-display text-2xl font-bold" style={{ color }}>{value}</div>
-      <div className="text-xs mt-0.5" style={{ color: colors.inkSoft }}>{label}</div>
+      <div className="text-xs mt-0.5" style={{ color: theme.inkSoft }}>{label}</div>
     </div>
   );
 }
 
-function buildMarkerIcon(urgent) {
-  const fill = urgent ? colors.alert : colors.marigold;
+function buildMarkerIcon(urgent, marigold = DEFAULT_THEME.marigold) {
+  const fill = urgent ? DEFAULT_THEME.alert : marigold;
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
       <path d="M16 0 C7 0 0 7 0 16 c0 12 16 24 16 24 s16-12 16-24 c0-9-7-16-16-16 z" fill="${fill}"/>
@@ -503,11 +538,16 @@ function buildMarkerIcon(urgent) {
   });
 }
 
-function MapScreen() {
+function MapScreen({ me }) {
+  const theme = useTheme();
   const navigate = useNavigate();
   const [mapPosts, setMapPosts] = useState([]);
   const [locating, setLocating] = useState(false);
   const mapRef = useRef(null);
+  const center = useMemo(
+    () => (me?.school ? [me.school.center_lat, me.school.center_lng] : WASHU_CENTER),
+    [me?.school?.id],
+  );
 
   useEffect(() => {
     api('/api/posts/map')
@@ -537,7 +577,7 @@ function MapScreen() {
   return (
     <main className="flex-1 relative">
       <MapContainer
-        center={WASHU_CENTER}
+        center={center}
         zoom={15}
         style={{ height: '100%', width: '100%' }}
         ref={mapRef}
@@ -547,12 +587,12 @@ function MapScreen() {
           attribution="&copy; OpenStreetMap"
         />
         {mapPosts.map((p) => (
-          <Marker key={p.id} position={[p.lat, p.lng]} icon={buildMarkerIcon(p.minutesLeft <= 15)}>
+          <Marker key={p.id} position={[p.lat, p.lng]} icon={buildMarkerIcon(p.minutesLeft <= 15, theme.marigold)}>
             <Popup>
               <div style={{ fontFamily: 'Inter, sans-serif', minWidth: 180 }}>
-                <div style={{ fontWeight: 600, marginBottom: 4, color: colors.ink }}>{p.title}</div>
-                <div style={{ fontSize: 12, color: colors.inkSoft }}>{p.location}</div>
-                <div style={{ fontSize: 12, color: p.minutesLeft <= 15 ? colors.alert : colors.clover, marginTop: 4 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4, color: theme.ink }}>{p.title}</div>
+                <div style={{ fontSize: 12, color: theme.inkSoft }}>{p.location}</div>
+                <div style={{ fontSize: 12, color: p.minutesLeft <= 15 ? theme.alert : theme.clover, marginTop: 4 }}>
                   {formatMinutes(p.minutesLeft)}
                 </div>
                 <button
@@ -560,7 +600,7 @@ function MapScreen() {
                   style={{
                     marginTop: 8, width: '100%', padding: '6px 10px',
                     borderRadius: 8, border: 'none', cursor: 'pointer',
-                    background: colors.marigold, color: '#fff',
+                    background: theme.marigold, color: '#fff',
                     fontSize: 12, fontWeight: 600,
                   }}
                 >
@@ -577,16 +617,17 @@ function MapScreen() {
         className="absolute z-[400] rounded-full shadow-lg flex items-center justify-center"
         style={{
           right: 16, bottom: 16, width: 44, height: 44,
-          background: '#fff', border: `1px solid ${colors.mist}`,
+          background: '#fff', border: `1px solid ${theme.mist}`,
         }}
       >
-        <Locate size={20} color={locating ? colors.marigold : colors.ink} />
+        <Locate size={20} color={locating ? theme.marigold : theme.ink} />
       </button>
     </main>
   );
 }
 
 function AlertsScreen({ me, setScreen, notifs, setNotifs, focusPost }) {
+  const theme = useTheme();
   const [subs, setSubs] = useState([]);
   const [radius, setRadius] = useState('0.5');
   const [keyword, setKeyword] = useState('');
@@ -691,15 +732,15 @@ function AlertsScreen({ me, setScreen, notifs, setNotifs, focusPost }) {
   if (!me) {
     return (
       <main className="flex-1 flex flex-col items-center justify-center px-8 text-center">
-        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: colors.cloverSoft }}>
-          <Bell size={26} color={colors.clover} />
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: theme.cloverSoft }}>
+          <Bell size={26} color={theme.clover} />
         </div>
-        <h2 className="ff-display text-base font-semibold mb-1" style={{ color: colors.ink }}>Sign in to set alerts</h2>
-        <p className="text-sm mb-6" style={{ color: colors.inkSoft }}>Alerts are tied to your account so we can notify you.</p>
+        <h2 className="ff-display text-base font-semibold mb-1" style={{ color: theme.ink }}>Sign in to set alerts</h2>
+        <p className="text-sm mb-6" style={{ color: theme.inkSoft }}>Alerts are tied to your account so we can notify you.</p>
         <button
           onClick={() => setScreen('profile')}
           className="rounded-xl py-2 px-5 font-semibold ff-body text-sm"
-          style={{ background: colors.marigold, color: '#fff' }}
+          style={{ background: theme.marigold, color: '#fff' }}
         >
           Go to profile
         </button>
@@ -709,8 +750,8 @@ function AlertsScreen({ me, setScreen, notifs, setNotifs, focusPost }) {
 
   return (
     <main className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-      <section className="rounded-2xl border p-4 space-y-3" style={{ background: colors.card, borderColor: colors.mist }}>
-        <h2 className="ff-display text-sm font-semibold" style={{ color: colors.ink }}>New alert</h2>
+      <section className="rounded-2xl border p-4 space-y-3" style={{ background: theme.card, borderColor: theme.mist }}>
+        <h2 className="ff-display text-sm font-semibold" style={{ color: theme.ink }}>New alert</h2>
         <Field
           label="Keyword (optional)"
           value={keyword}
@@ -726,18 +767,18 @@ function AlertsScreen({ me, setScreen, notifs, setNotifs, focusPost }) {
           type="number"
         />
         <div>
-          <div className="text-xs font-medium mb-1" style={{ color: colors.inkSoft }}>Location</div>
+          <div className="text-xs font-medium mb-1" style={{ color: theme.inkSoft }}>Location</div>
           <button
             onClick={useMyLocation}
             disabled={locating}
             className="w-full rounded-xl border px-3 py-2 text-sm flex items-center gap-2 disabled:opacity-60"
-            style={{ borderColor: colors.mist, background: '#fff', color: colors.ink }}
+            style={{ borderColor: theme.mist, background: '#fff', color: theme.ink }}
           >
-            <Locate size={14} color={colors.inkSoft} />
+            <Locate size={14} color={theme.inkSoft} />
             <span>{locating ? 'Locating…' : 'Use my location'}</span>
           </button>
           {coords && (
-            <div className="text-xs mt-1" style={{ color: colors.inkSoft }}>
+            <div className="text-xs mt-1" style={{ color: theme.inkSoft }}>
               {coords.lat.toFixed(4)}, {coords.lng.toFixed(4)}
               {usingFallback && <span> — using WashU as default</span>}
             </div>
@@ -747,27 +788,27 @@ function AlertsScreen({ me, setScreen, notifs, setNotifs, focusPost }) {
           onClick={submit}
           disabled={!coords || !(Number(radius) > 0)}
           className="w-full rounded-xl py-3 font-semibold ff-body text-sm disabled:opacity-40"
-          style={{ background: colors.marigold, color: '#fff' }}
+          style={{ background: theme.marigold, color: '#fff' }}
         >
           Save alert
         </button>
       </section>
 
       <section>
-        <h2 className="ff-display text-sm font-semibold mb-2" style={{ color: colors.ink }}>My alerts</h2>
+        <h2 className="ff-display text-sm font-semibold mb-2" style={{ color: theme.ink }}>My alerts</h2>
         {subs.length === 0 ? (
-          <p className="text-sm" style={{ color: colors.inkSoft }}>
+          <p className="text-sm" style={{ color: theme.inkSoft }}>
             No alerts yet — add one above to be pinged when nearby leftovers pop up.
           </p>
         ) : (
           <ul className="space-y-2">
             {subs.map((s) => (
-              <li key={s.id} className="rounded-xl border p-3 flex items-center justify-between" style={{ background: colors.card, borderColor: colors.mist }}>
+              <li key={s.id} className="rounded-xl border p-3 flex items-center justify-between" style={{ background: theme.card, borderColor: theme.mist }}>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium truncate" style={{ color: colors.ink }}>
+                  <div className="text-sm font-medium truncate" style={{ color: theme.ink }}>
                     {s.keyword ? `"${s.keyword}"` : 'Any food'} within {s.radius_miles} mi
                   </div>
-                  <div className="text-xs" style={{ color: colors.inkSoft }}>
+                  <div className="text-xs" style={{ color: theme.inkSoft }}>
                     {s.lat.toFixed(4)}, {s.lng.toFixed(4)}
                   </div>
                 </div>
@@ -775,7 +816,7 @@ function AlertsScreen({ me, setScreen, notifs, setNotifs, focusPost }) {
                   onClick={() => removeSub(s.id)}
                   className="p-2 rounded-full"
                   aria-label="Delete alert"
-                  style={{ color: colors.alert }}
+                  style={{ color: theme.alert }}
                 >
                   <Trash2 size={16} />
                 </button>
@@ -787,19 +828,19 @@ function AlertsScreen({ me, setScreen, notifs, setNotifs, focusPost }) {
 
       <section>
         <div className="flex items-center justify-between mb-2">
-          <h2 className="ff-display text-sm font-semibold" style={{ color: colors.ink }}>Recent matches</h2>
+          <h2 className="ff-display text-sm font-semibold" style={{ color: theme.ink }}>Recent matches</h2>
           {notifs.some((n) => !n.read_at) && (
             <button
               onClick={markAllRead}
               className="text-xs font-medium underline"
-              style={{ color: colors.inkSoft }}
+              style={{ color: theme.inkSoft }}
             >
               Mark all read
             </button>
           )}
         </div>
         {notifs.length === 0 ? (
-          <p className="text-sm" style={{ color: colors.inkSoft }}>
+          <p className="text-sm" style={{ color: theme.inkSoft }}>
             You’ll see alerts here when a matching flyer is posted.
           </p>
         ) : (
@@ -812,20 +853,20 @@ function AlertsScreen({ me, setScreen, notifs, setNotifs, focusPost }) {
                     onClick={() => markRead(n)}
                     className="w-full text-left rounded-xl border p-3 flex items-start gap-2 focus-visible:ring-2"
                     style={{
-                      background: unread ? colors.marigoldSoft : colors.card,
-                      borderColor: unread ? colors.marigold : colors.mist,
+                      background: unread ? theme.marigoldSoft : theme.card,
+                      borderColor: unread ? theme.marigold : theme.mist,
                     }}
                   >
                     {unread && (
                       <span
                         className="w-2 h-2 rounded-full mt-1.5 shrink-0"
-                        style={{ background: colors.marigoldDark }}
+                        style={{ background: theme.marigoldDark }}
                         aria-label="unread"
                       />
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm" style={{ color: colors.ink, fontWeight: unread ? 600 : 400 }}>{n.message}</div>
-                      <div className="text-xs mt-1" style={{ color: colors.inkSoft }}>
+                      <div className="text-sm" style={{ color: theme.ink, fontWeight: unread ? 600 : 400 }}>{n.message}</div>
+                      <div className="text-xs mt-1" style={{ color: theme.inkSoft }}>
                         {relativeTime(n.sent_at)}
                         {n.post_id && <span> · Tap to view post</span>}
                       </div>
@@ -842,6 +883,7 @@ function AlertsScreen({ me, setScreen, notifs, setNotifs, focusPost }) {
 }
 
 function PostModal({ post, saved, onSaveToggle, onClose }) {
+  const theme = useTheme();
   const [userCoords, setUserCoords] = useState(null);
 
   useEffect(() => {
@@ -870,7 +912,7 @@ function PostModal({ post, saved, onSaveToggle, onClose }) {
   const hasCoords = post.lat != null && post.lng != null;
   const urgent = post.minutesLeft <= 15;
   const soon = !urgent && post.minutesLeft <= 60;
-  const timeColor = urgent ? colors.alert : soon ? colors.marigoldDark : colors.clover;
+  const timeColor = urgent ? theme.alert : soon ? theme.marigoldDark : theme.clover;
 
   let directionsHref = null;
   if (hasCoords) {
@@ -894,7 +936,7 @@ function PostModal({ post, saved, onSaveToggle, onClose }) {
     >
       <div
         className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl"
-        style={{ background: colors.paper }}
+        style={{ background: theme.paper }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative">
@@ -914,17 +956,17 @@ function PostModal({ post, saved, onSaveToggle, onClose }) {
             className="absolute top-3 right-3 rounded-full flex items-center justify-center shadow"
             style={{ width: 32, height: 32, background: '#fff' }}
           >
-            <X size={18} color={colors.ink} />
+            <X size={18} color={theme.ink} />
           </button>
         </div>
         <div className="p-4 space-y-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <h2 className="ff-display text-lg font-semibold leading-snug" style={{ color: colors.ink }}>
+              <h2 className="ff-display text-lg font-semibold leading-snug" style={{ color: theme.ink }}>
                 {post.title}
               </h2>
               {post.organization && (
-                <div className="flex items-center gap-1 mt-1 text-sm font-medium" style={{ color: colors.marigoldDark }}>
+                <div className="flex items-center gap-1 mt-1 text-sm font-medium" style={{ color: theme.marigoldDark }}>
                   <Users size={14} />
                   <span>{post.organization}</span>
                 </div>
@@ -939,14 +981,14 @@ function PostModal({ post, saved, onSaveToggle, onClose }) {
               >
                 <Heart
                   size={22}
-                  color={saved ? colors.alert : colors.inkSoft}
-                  fill={saved ? colors.alert : 'none'}
+                  color={saved ? theme.alert : theme.inkSoft}
+                  fill={saved ? theme.alert : 'none'}
                 />
               </button>
             )}
           </div>
 
-          <div className="flex items-center gap-1 text-sm" style={{ color: colors.inkSoft }}>
+          <div className="flex items-center gap-1 text-sm" style={{ color: theme.inkSoft }}>
             <MapPin size={14} />
             <span>{post.location}</span>
           </div>
@@ -957,14 +999,14 @@ function PostModal({ post, saved, onSaveToggle, onClose }) {
               <span>{formatMinutes(post.minutesLeft)}</span>
             </div>
             {post.tag && (
-              <span className="text-xs font-medium px-2 py-1 rounded-full" style={{ background: colors.cloverSoft, color: colors.clover }}>
+              <span className="text-xs font-medium px-2 py-1 rounded-full" style={{ background: theme.cloverSoft, color: theme.clover }}>
                 {post.tag}
               </span>
             )}
           </div>
 
           {hasCoords ? (
-            <div className="rounded-xl overflow-hidden border" style={{ borderColor: colors.mist, height: 190 }}>
+            <div className="rounded-xl overflow-hidden border" style={{ borderColor: theme.mist, height: 190 }}>
               <MapContainer
                 center={[post.lat, post.lng]}
                 zoom={16}
@@ -977,13 +1019,13 @@ function PostModal({ post, saved, onSaveToggle, onClose }) {
                 style={{ height: '100%', width: '100%' }}
               >
                 <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
-                <Marker position={[post.lat, post.lng]} icon={buildMarkerIcon(urgent)} />
+                <Marker position={[post.lat, post.lng]} icon={buildMarkerIcon(urgent, theme.marigold)} />
               </MapContainer>
             </div>
           ) : (
             <div
               className="rounded-xl border text-sm px-3 py-4 text-center"
-              style={{ borderColor: colors.mist, background: '#fff', color: colors.inkSoft }}
+              style={{ borderColor: theme.mist, background: '#fff', color: theme.inkSoft }}
             >
               Pin not set
             </div>
@@ -995,7 +1037,7 @@ function PostModal({ post, saved, onSaveToggle, onClose }) {
               target="_blank"
               rel="noreferrer"
               className="w-full rounded-xl py-3 font-semibold ff-body text-sm flex items-center justify-center gap-2"
-              style={{ background: colors.marigold, color: '#fff' }}
+              style={{ background: theme.marigold, color: '#fff' }}
             >
               <Navigation size={16} />
               Get directions
@@ -1004,7 +1046,7 @@ function PostModal({ post, saved, onSaveToggle, onClose }) {
             <button
               disabled
               className="w-full rounded-xl py-3 font-semibold ff-body text-sm flex items-center justify-center gap-2 opacity-40"
-              style={{ background: colors.marigold, color: '#fff' }}
+              style={{ background: theme.marigold, color: '#fff' }}
             >
               <Navigation size={16} />
               Get directions
@@ -1014,6 +1056,336 @@ function PostModal({ post, saved, onSaveToggle, onClose }) {
       </div>
     </div>,
     document.body,
+  );
+}
+
+function OnboardingScreen({ setMe }) {
+  const theme = useTheme();
+  const [schools, setSchools] = useState([]);
+  const [q, setQ] = useState('');
+  const [selected, setSelected] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    api('/api/schools')
+      .then(setSchools)
+      .catch((err) => toast.error(err.friendly || 'Couldn’t load schools.'));
+  }, []);
+
+  const needle = q.trim().toLowerCase();
+  const filtered = needle
+    ? schools.filter(
+        (s) =>
+          s.name.toLowerCase().includes(needle) ||
+          s.short_name.toLowerCase().includes(needle),
+      )
+    : schools;
+
+  async function join() {
+    if (!selected || submitting) return;
+    setSubmitting(true);
+    try {
+      const updated = await api('/api/me/school', {
+        method: 'PATCH',
+        body: JSON.stringify({ school_id: selected.id }),
+      });
+      setMe(updated);
+    } catch (err) {
+      toast.error(err.friendly || 'Couldn’t join that school.');
+      setSubmitting(false);
+    }
+  }
+
+  if (selected) {
+    return (
+      <main className="flex-1 overflow-y-auto px-6 py-10 flex flex-col">
+        <div className="flex-1 flex flex-col items-center justify-center text-center">
+          <img
+            src={selected.logo_path}
+            alt=""
+            className="w-20 h-20 rounded-2xl mb-4"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
+          <div
+            className="text-xs font-semibold uppercase tracking-wide mb-2"
+            style={{ color: theme.inkSoft }}
+          >
+            You’re joining
+          </div>
+          <h2 className="ff-display text-2xl font-semibold mb-2" style={{ color: theme.ink }}>
+            {selected.short_name} FoodFeed
+          </h2>
+          <p className="text-sm mb-8 max-w-xs" style={{ color: theme.inkSoft }}>
+            You’ll see sightings from other {selected.short_name} students and post to the same community.
+          </p>
+          <button
+            onClick={join}
+            disabled={submitting}
+            className="w-full rounded-xl py-3 font-semibold ff-body text-sm disabled:opacity-60"
+            style={{ background: selected.primary_color, color: selected.on_primary }}
+          >
+            {submitting ? 'Joining…' : 'Join community'}
+          </button>
+          <button
+            onClick={() => setSelected(null)}
+            className="mt-3 text-sm font-medium underline"
+            style={{ color: theme.inkSoft }}
+          >
+            Choose a different school
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      <div className="px-2">
+        <h1 className="ff-display text-2xl font-semibold" style={{ color: theme.ink }}>
+          Welcome to FoodFeed
+        </h1>
+        <p className="text-sm mt-1" style={{ color: theme.inkSoft }}>
+          Pick your school to see leftover-food sightings from your campus.
+        </p>
+      </div>
+      <div
+        className="flex items-center gap-2 rounded-xl border px-3 py-2"
+        style={{ borderColor: theme.mist, background: '#fff' }}
+      >
+        <Search size={14} color={theme.inkSoft} />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search schools…"
+          className="flex-1 outline-none text-sm ff-body bg-transparent focus-visible:outline-none"
+          style={{ color: theme.ink }}
+          aria-label="Search schools"
+          autoFocus
+        />
+        {q && (
+          <button onClick={() => setQ('')} aria-label="Clear search" style={{ color: theme.inkSoft }}>
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      {filtered.length === 0 ? (
+        <div className="text-center py-10 px-6">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+            style={{ background: theme.marigoldSoft }}
+          >
+            <Sparkles size={22} color={theme.marigoldDark} />
+          </div>
+          <h3 className="ff-display text-base font-semibold mb-1" style={{ color: theme.ink }}>
+            We’re not on that campus yet
+          </h3>
+          <p className="text-sm" style={{ color: theme.inkSoft }}>
+            We’ll notify you when we launch there.
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {filtered.map((s) => (
+            <li key={s.id}>
+              <button
+                onClick={() => setSelected(s)}
+                className="w-full rounded-2xl border p-3 flex items-center gap-3 text-left focus-visible:ring-2"
+                style={{ background: theme.card, borderColor: theme.mist }}
+              >
+                <img
+                  src={s.logo_path}
+                  alt=""
+                  className="w-11 h-11 rounded-xl shrink-0"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="ff-display font-semibold text-sm truncate" style={{ color: theme.ink }}>
+                    {s.short_name}
+                  </div>
+                  <div className="text-xs truncate" style={{ color: theme.inkSoft }}>
+                    {s.name}
+                  </div>
+                </div>
+                <span
+                  className="w-6 h-6 rounded-full shrink-0"
+                  style={{ background: s.primary_color, border: `2px solid ${s.primary_soft}` }}
+                  aria-hidden
+                />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </main>
+  );
+}
+
+const FIRST_ALERT_RADII = [0.25, 0.5, 1, 2, 5];
+
+function firstAlertDoneKey(userId) {
+  return `ff_first_alert_done_${userId}`;
+}
+
+function FirstAlertScreen({ me, onDone }) {
+  const theme = useTheme();
+  const [keywords, setKeywords] = useState([]);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [custom, setCustom] = useState('');
+  const [radius, setRadius] = useState(0.5);
+  const [submitting, setSubmitting] = useState(false);
+
+  const toggleChip = (t) => {
+    setKeywords((prev) => (prev.includes(t) ? prev.filter((k) => k !== t) : [...prev, t]));
+  };
+
+  const openCustom = () => {
+    setCustomOpen((v) => !v);
+  };
+
+  async function save() {
+    if (submitting) return;
+    setSubmitting(true);
+    const lat = me?.school?.center_lat ?? WASHU_CENTER[0];
+    const lng = me?.school?.center_lng ?? WASHU_CENTER[1];
+    const customClean = custom.trim();
+    const all = [...keywords];
+    if (customClean && !all.includes(customClean)) all.push(customClean);
+    const toSave = all.length > 0 ? all : [null];
+    try {
+      for (const kw of toSave) {
+        await api('/api/subscriptions', {
+          method: 'POST',
+          body: JSON.stringify({
+            lat,
+            lng,
+            radius_miles: radius,
+            keyword: kw,
+          }),
+        });
+      }
+      try { localStorage.setItem(firstAlertDoneKey(me.id), '1'); } catch {}
+      toast.success(
+        toSave.length > 1
+          ? `You’ll get pinged when any of those show up.`
+          : `You’ll get pinged when a match shows up.`
+      );
+      onDone();
+    } catch (err) {
+      toast.error(err.friendly || 'Couldn’t save that alert.');
+      setSubmitting(false);
+    }
+  }
+
+  function skip() {
+    try { localStorage.setItem(firstAlertDoneKey(me.id), '1'); } catch {}
+    onDone();
+  }
+
+  const chipActive = (t) => keywords.includes(t);
+
+  return (
+    <main className="flex-1 overflow-y-auto px-6 py-10 flex flex-col">
+      <div className="flex-1 flex flex-col">
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5" style={{ background: theme.marigoldSoft }}>
+          <Bell size={24} color={theme.marigoldDark} />
+        </div>
+        <h2 className="ff-display text-2xl font-semibold mb-2" style={{ color: theme.ink }}>
+          One last thing
+        </h2>
+        <p className="text-sm mb-8" style={{ color: theme.inkSoft }}>
+          Tell us what to watch for. We’ll notify you the moment someone posts nearby.
+        </p>
+
+        <div className="mb-6">
+          <div className="text-xs font-medium mb-2" style={{ color: theme.inkSoft }}>
+            I’m watching for… <span style={{ opacity: 0.7 }}>(pick as many as you like)</span>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+            {CANONICAL_TAGS.map((t) => {
+              const active = chipActive(t);
+              return (
+                <button
+                  key={t}
+                  onClick={() => toggleChip(t)}
+                  className="text-xs font-medium px-3 py-1 rounded-full whitespace-nowrap border transition"
+                  style={{
+                    background: active ? theme.marigold : '#fff',
+                    color: active ? '#fff' : theme.ink,
+                    borderColor: active ? theme.marigold : theme.mist,
+                  }}
+                >
+                  {t}
+                </button>
+              );
+            })}
+            <button
+              onClick={openCustom}
+              className="text-xs font-medium px-3 py-1 rounded-full whitespace-nowrap border transition"
+              style={{
+                background: customOpen ? theme.marigold : '#fff',
+                color: customOpen ? '#fff' : theme.ink,
+                borderColor: customOpen ? theme.marigold : theme.mist,
+              }}
+            >
+              Custom…
+            </button>
+          </div>
+          {customOpen && (
+            <div className="mt-3">
+              <Field
+                label="Custom keyword"
+                value={custom}
+                onChange={setCustom}
+                placeholder="e.g. dumplings"
+                icon={<Tag size={14} />}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="mb-8">
+          <div className="text-xs font-medium mb-2" style={{ color: theme.inkSoft }}>
+            Within…
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+            {FIRST_ALERT_RADII.map((r) => {
+              const active = radius === r;
+              return (
+                <button
+                  key={r}
+                  onClick={() => setRadius(r)}
+                  className="text-xs font-medium px-3 py-1 rounded-full whitespace-nowrap border transition"
+                  style={{
+                    background: active ? theme.marigold : '#fff',
+                    color: active ? '#fff' : theme.ink,
+                    borderColor: active ? theme.marigold : theme.mist,
+                  }}
+                >
+                  {r} mi
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <button
+          onClick={save}
+          disabled={submitting}
+          className="w-full rounded-xl py-3 font-semibold ff-body text-sm disabled:opacity-60"
+          style={{ background: theme.marigold, color: '#fff' }}
+        >
+          {submitting ? 'Saving…' : 'Set my alert'}
+        </button>
+        <button
+          onClick={skip}
+          disabled={submitting}
+          className="mt-3 text-sm font-medium underline self-center"
+          style={{ color: theme.inkSoft }}
+        >
+          Skip for now
+        </button>
+      </div>
+    </main>
   );
 }
 
@@ -1027,6 +1399,20 @@ const PATH_TO_SCREEN = {
 const SCREEN_TO_PATH = { home: '/', post: '/post', map: '/map', alerts: '/alerts', profile: '/profile' };
 
 export default function FoodFeed() {
+  const [me, setMe] = useState(null);
+  useEffect(() => {
+    api('/api/me').then(setMe).catch(() => setMe(null));
+  }, []);
+  const theme = useMemo(() => themeFromMe(me), [me?.school?.id]);
+  return (
+    <ThemeContext.Provider value={theme}>
+      <FoodFeedInner me={me} setMe={setMe} />
+    </ThemeContext.Provider>
+  );
+}
+
+function FoodFeedInner({ me, setMe }) {
+  const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const pathMatch = location.pathname.match(/^\/posts\/(\d+)/);
@@ -1047,7 +1433,6 @@ export default function FoodFeed() {
   const [form, setForm] = useState({ title: '', location: '', minutes: '', tag: '', organization: '', lat: null, lng: null });
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
-  const [me, setMe] = useState(null);
   const [notifs, setNotifs] = useState([]);
   const [q, setQ] = useState('');
   const [tag, setTag] = useState('');
@@ -1056,6 +1441,8 @@ export default function FoodFeed() {
   const [savedPosts, setSavedPosts] = useState([]);
   const [geocodingLoc, setGeocodingLoc] = useState(false);
   const [pinLocating, setPinLocating] = useState(false);
+  const [firstAlertDone, setFirstAlertDone] = useState(false);
+  const [firstAlertChecked, setFirstAlertChecked] = useState(false);
   const lastGeocodedRef = useRef('');
   const fileInput = useRef(null);
   const unreadCount = notifs.filter((n) => !n.read_at).length;
@@ -1074,6 +1461,37 @@ export default function FoodFeed() {
       setSavedPosts(data.posts || []);
     }).catch(() => {});
   }, [me]);
+
+  useEffect(() => {
+    if (!me?.id || !me?.school_id) {
+      setFirstAlertDone(false);
+      setFirstAlertChecked(false);
+      return;
+    }
+    let stamped = false;
+    try {
+      stamped = localStorage.getItem(firstAlertDoneKey(me.id)) === '1';
+    } catch {}
+    if (stamped) {
+      setFirstAlertDone(true);
+      setFirstAlertChecked(true);
+      return;
+    }
+    let cancelled = false;
+    api('/api/subscriptions')
+      .then((subs) => {
+        if (cancelled) return;
+        if (Array.isArray(subs) && subs.length > 0) {
+          try { localStorage.setItem(firstAlertDoneKey(me.id), '1'); } catch {}
+          setFirstAlertDone(true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setFirstAlertChecked(true);
+      });
+    return () => { cancelled = true; };
+  }, [me?.id, me?.school_id]);
 
   const toggleSave = async (post) => {
     if (!me) { setScreen('profile'); return; }
@@ -1147,10 +1565,7 @@ export default function FoodFeed() {
   }, [photoFile]);
 
   useEffect(() => {
-    api('/api/me').then(setMe).catch(() => setMe(null));
-  }, []);
-
-  useEffect(() => {
+    if (!me?.school_id) { setPosts([]); setLoading(false); return; }
     const params = new URLSearchParams();
     if (debouncedQ) params.set('q', debouncedQ);
     if (tag) params.set('tag', tag);
@@ -1160,7 +1575,7 @@ export default function FoodFeed() {
       .then((data) => setPosts(data))
       .catch((err) => toast.error(err.friendly || 'Couldn’t load posts.'))
       .finally(() => setLoading(false));
-  }, [debouncedQ, tag]);
+  }, [debouncedQ, tag, me?.school_id]);
 
   const resetForm = () => {
     setForm({ title: '', location: '', minutes: '', tag: '', organization: '', lat: null, lng: null });
@@ -1279,7 +1694,7 @@ export default function FoodFeed() {
   const titles = { home: 'FoodFeed', post: 'New sighting', map: 'Map', alerts: 'My alerts', profile: 'Profile' };
 
   return (
-    <div className="h-screen w-full flex justify-center overflow-hidden" style={{ background: colors.mist }}>
+    <div className="h-screen w-full flex justify-center overflow-hidden" style={{ background: theme.mist }}>
       <Toaster position="top-center" richColors closeButton />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
@@ -1292,20 +1707,37 @@ export default function FoodFeed() {
         .leaflet-container { font-family: 'Inter', sans-serif; }
       `}</style>
 
-      <div className="ff-body w-full sm:max-w-sm h-screen flex flex-col sm:border-x" style={{ background: colors.paper, borderColor: colors.mist }}>
-        <header className="flex items-center gap-3 px-4 py-4 border-b shrink-0" style={{ borderColor: colors.mist }}>
+      <div className="ff-body w-full sm:max-w-sm h-screen flex flex-col sm:border-x" style={{ background: theme.paper, borderColor: theme.mist }}>
+        {me && !me.school_id ? (
+          <OnboardingScreen setMe={setMe} />
+        ) : me && firstAlertChecked && !firstAlertDone ? (
+          <FirstAlertScreen me={me} onDone={() => setFirstAlertDone(true)} />
+        ) : (<>
+        <header
+          className="flex items-center gap-3 px-4 py-4 border-b shrink-0"
+          style={{ borderColor: theme.mist, background: me?.school ? theme.marigoldSoft : undefined }}
+        >
           {screen === 'post' ? (
             <button onClick={() => setScreen('home')} className="p-1 -ml-1 rounded-full active:opacity-60" aria-label="Back">
-              <ArrowLeft size={22} color={colors.ink} />
+              <ArrowLeft size={22} color={theme.ink} />
             </button>
           ) : (
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: colors.marigold }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: theme.marigold }}>
               <span className="ff-display text-white text-sm font-bold">FF</span>
             </div>
           )}
-          <h1 className="ff-display text-lg font-semibold flex-1" style={{ color: colors.ink }}>{titles[screen]}</h1>
-          {me && screen !== 'post' && (
-            <span className="text-xs truncate max-w-[10rem]" style={{ color: colors.inkSoft }} title={me.email}>
+          <h1 className="ff-display text-lg font-semibold flex-1" style={{ color: theme.ink }}>{titles[screen]}</h1>
+          {me?.school && screen !== 'post' && (
+            <img
+              src={me.school.logo_path}
+              alt={me.school.short_name}
+              title={me.school.short_name}
+              className="w-8 h-8 rounded-lg shrink-0"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          )}
+          {me && !me.school && screen !== 'post' && (
+            <span className="text-xs truncate max-w-[10rem]" style={{ color: theme.inkSoft }} title={me.email}>
               {me.name || me.email}
             </span>
           )}
@@ -1315,11 +1747,11 @@ export default function FoodFeed() {
           <main className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
             <FilterBar q={q} setQ={setQ} tag={tag} setTag={setTag} />
             {loading && posts.length === 0 && (
-              <p className="text-sm text-center" style={{ color: colors.inkSoft }}>Loading…</p>
+              <p className="text-sm text-center" style={{ color: theme.inkSoft }}>Loading…</p>
             )}
             {!loading && posts.length === 0 && filtering && (
               <EmptyState
-                icon={<Search size={22} color={colors.marigoldDark} />}
+                icon={<Search size={22} color={theme.marigoldDark} />}
                 title="No matches"
                 body="Try clearing the filter or a different keyword."
                 action={{ label: 'Clear filters', onClick: () => { setQ(''); setTag(''); } }}
@@ -1327,7 +1759,7 @@ export default function FoodFeed() {
             )}
             {!loading && posts.length === 0 && !filtering && (
               <EmptyState
-                icon={<Sparkles size={22} color={colors.marigoldDark} />}
+                icon={<Sparkles size={22} color={theme.marigoldDark} />}
                 title="No sightings near you yet"
                 body="Be the first to share leftovers on campus."
                 action={{ label: 'Post a sighting', onClick: startPost }}
@@ -1358,24 +1790,24 @@ export default function FoodFeed() {
               onClick={handleCapture}
               className="w-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center py-10 relative overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
               style={{
-                borderColor: scanState === 'done' ? colors.clover : colors.mist,
-                background: scanState === 'done' ? colors.cloverSoft : '#fff',
+                borderColor: scanState === 'done' ? theme.clover : theme.mist,
+                background: scanState === 'done' ? theme.cloverSoft : '#fff',
               }}
             >
               {scanState === 'scanning' && (
-                <div className="absolute left-0 right-0 h-0.5 ff-scanline" style={{ background: colors.marigold }} />
+                <div className="absolute left-0 right-0 h-0.5 ff-scanline" style={{ background: theme.marigold }} />
               )}
               {scanState === 'idle' && !photoPreview && (
                 <>
-                  <Camera size={28} color={colors.inkSoft} />
-                  <span className="ff-body text-sm font-medium mt-3" style={{ color: colors.ink }}>Tap to add a flyer photo</span>
-                  <span className="ff-body text-xs mt-1" style={{ color: colors.inkSoft }}>We'll read the details for you</span>
+                  <Camera size={28} color={theme.inkSoft} />
+                  <span className="ff-body text-sm font-medium mt-3" style={{ color: theme.ink }}>Tap to add a flyer photo</span>
+                  <span className="ff-body text-xs mt-1" style={{ color: theme.inkSoft }}>We'll read the details for you</span>
                 </>
               )}
               {scanState === 'scanning' && (
                 <>
-                  <Sparkles size={28} color={colors.marigold} />
-                  <span className="ff-body text-sm font-medium mt-3" style={{ color: colors.ink }}>Scanning flyer…</span>
+                  <Sparkles size={28} color={theme.marigold} />
+                  <span className="ff-body text-sm font-medium mt-3" style={{ color: theme.ink }}>Scanning flyer…</span>
                 </>
               )}
               {scanState === 'done' && photoPreview && (
@@ -1385,13 +1817,13 @@ export default function FoodFeed() {
                     alt="flyer preview"
                     className="w-full max-h-48 object-cover rounded-xl"
                   />
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center mt-3" style={{ background: colors.clover }}>
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center mt-3" style={{ background: theme.clover }}>
                     <Check size={16} color="#fff" />
                   </div>
-                  <span className="ff-body text-sm font-medium mt-2" style={{ color: colors.clover }}>Flyer scanned</span>
+                  <span className="ff-body text-sm font-medium mt-2" style={{ color: theme.clover }}>Flyer scanned</span>
                   <span
                     className="ff-body text-xs mt-1 underline"
-                    style={{ color: colors.inkSoft }}
+                    style={{ color: theme.inkSoft }}
                     onClick={(e) => { e.stopPropagation(); resetForm(); }}
                   >
                     Retake
@@ -1412,7 +1844,7 @@ export default function FoodFeed() {
                 autoFilled={scanState === 'done'}
               />
               <div>
-                <div className="text-xs font-medium mb-1" style={{ color: colors.inkSoft }}>
+                <div className="text-xs font-medium mb-1" style={{ color: theme.inkSoft }}>
                   Pin location {geocodingLoc && <span>· looking up…</span>}
                 </div>
                 <SubmitMap
@@ -1425,12 +1857,12 @@ export default function FoodFeed() {
                   onClick={useMyLocationForPin}
                   disabled={pinLocating}
                   className="mt-2 w-full rounded-xl border px-3 py-2 text-sm flex items-center gap-2 disabled:opacity-60"
-                  style={{ borderColor: colors.mist, background: '#fff', color: colors.ink }}
+                  style={{ borderColor: theme.mist, background: '#fff', color: theme.ink }}
                 >
-                  <Locate size={14} color={colors.inkSoft} />
+                  <Locate size={14} color={theme.inkSoft} />
                   <span>{pinLocating ? 'Locating…' : 'Use my location'}</span>
                 </button>
-                <div className="text-xs mt-1" style={{ color: colors.inkSoft }}>
+                <div className="text-xs mt-1" style={{ color: theme.inkSoft }}>
                   {form.lat != null && form.lng != null
                     ? <>Pin: {form.lat.toFixed(5)}, {form.lng.toFixed(5)} — drag to correct</>
                     : <>Tap the map, drag a pin, or use “Use my location.” Left unset, we'll try to guess from the text.</>}
@@ -1445,14 +1877,14 @@ export default function FoodFeed() {
               onClick={submitPost}
               disabled={!form.title.trim() || !form.location.trim()}
               className="w-full rounded-xl py-3 mt-6 font-semibold ff-body text-sm disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-              style={{ background: colors.marigold, color: '#fff' }}
+              style={{ background: theme.marigold, color: '#fff' }}
             >
               Post sighting
             </button>
           </main>
         )}
 
-        {screen === 'map' && <MapScreen />}
+        {screen === 'map' && <MapScreen me={me} />}
         {screen === 'alerts' && (
           <AlertsScreen
             me={me}
@@ -1485,13 +1917,13 @@ export default function FoodFeed() {
         )}
 
         {screen !== 'post' && (
-          <nav className="flex items-center justify-between px-6 py-2 border-t shrink-0" style={{ borderColor: colors.mist }}>
+          <nav className="flex items-center justify-between px-6 py-2 border-t shrink-0" style={{ borderColor: theme.mist }}>
             <NavButton icon={<Home size={20} />} active={screen === 'home'} onClick={() => setScreen('home')} label="Home" />
             <NavButton icon={<Map size={20} />} active={screen === 'map'} onClick={() => setScreen('map')} label="Map" />
             <button
               onClick={startPost}
               className="w-12 h-12 rounded-full flex items-center justify-center -mt-6 shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-              style={{ background: colors.marigold }}
+              style={{ background: theme.marigold }}
               aria-label="Post a sighting"
             >
               <Plus size={22} color="#fff" />
@@ -1502,12 +1934,12 @@ export default function FoodFeed() {
               aria-label={unreadCount ? `Alerts, ${unreadCount} unread` : 'Alerts'}
               className="relative p-2 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
             >
-              <Bell size={20} color={screen === 'alerts' ? colors.marigold : colors.inkSoft} />
+              <Bell size={20} color={screen === 'alerts' ? theme.marigold : theme.inkSoft} />
               {unreadCount > 0 && (
                 <span
                   className="absolute -top-0.5 -right-0.5 text-[10px] font-bold rounded-full flex items-center justify-center"
                   style={{
-                    background: colors.alert,
+                    background: theme.alert,
                     color: '#fff',
                     minWidth: 16,
                     height: 16,
@@ -1521,6 +1953,7 @@ export default function FoodFeed() {
             <NavButton icon={<User size={20} />} active={screen === 'profile'} onClick={() => setScreen('profile')} label="Profile" />
           </nav>
         )}
+        </>)}
       </div>
     </div>
   );
@@ -1552,8 +1985,8 @@ export class ErrorBoundary extends Component {
           alignItems: 'center',
           justifyContent: 'center',
           padding: 24,
-          background: colors.paper,
-          color: colors.ink,
+          background: DEFAULT_THEME.paper,
+          color: DEFAULT_THEME.ink,
           fontFamily: 'Inter, sans-serif',
           textAlign: 'center',
         }}
@@ -1562,22 +1995,22 @@ export class ErrorBoundary extends Component {
           style={{
             width: 56, height: 56, borderRadius: 16,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: colors.marigoldSoft, marginBottom: 16,
+            background: DEFAULT_THEME.marigoldSoft, marginBottom: 16,
           }}
         >
-          <Sparkles size={24} color={colors.marigoldDark} />
+          <Sparkles size={24} color={DEFAULT_THEME.marigoldDark} />
         </div>
         <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 20, fontWeight: 600, marginBottom: 8 }}>
           Something broke
         </h1>
-        <p style={{ fontSize: 14, color: colors.inkSoft, maxWidth: 320, marginBottom: 20 }}>
+        <p style={{ fontSize: 14, color: DEFAULT_THEME.inkSoft, maxWidth: 320, marginBottom: 20 }}>
           The app hit an unexpected error. Reloading usually fixes it.
         </p>
         <button
           onClick={this.reset}
           style={{
             padding: '10px 20px', borderRadius: 12,
-            background: colors.marigold, color: '#fff',
+            background: DEFAULT_THEME.marigold, color: '#fff',
             fontWeight: 600, fontSize: 14, border: 'none', cursor: 'pointer',
           }}
         >

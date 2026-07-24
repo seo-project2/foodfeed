@@ -39,16 +39,23 @@ SCAN_SYSTEM_PROMPT = (
 
 
 @bp.get("")
+@require_auth
 def list_posts():
     now = datetime.now(timezone.utc).isoformat()
     q = (request.args.get("q") or "").strip()
     tag = (request.args.get("tag") or "").strip()
 
+    conn = get_db_connection()
+    school_id = _current_school_id(conn)
+    if school_id is None:
+        conn.close()
+        return jsonify([])
+
     sql = (
         "SELECT id, title, location_text, tag, organization, lat, lng, image_url, expiry_time "
-        "FROM food_posts WHERE expiry_time > ?"
+        "FROM food_posts WHERE expiry_time > ? AND school_id = ?"
     )
-    params = [now]
+    params = [now, school_id]
     if q:
         sql += " AND (LOWER(title) LIKE ? OR LOWER(location_text) LIKE ?)"
         needle = f"%{q.lower()}%"
@@ -58,22 +65,27 @@ def list_posts():
         params.append(tag.lower())
     sql += " ORDER BY expiry_time ASC"
 
-    conn = get_db_connection()
     rows = conn.execute(sql, tuple(params)).fetchall()
     conn.close()
     return jsonify([_to_feed_item(r) for r in rows])
 
 
 @bp.get("/map")
+@require_auth
 def list_map_posts():
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db_connection()
+    school_id = _current_school_id(conn)
+    if school_id is None:
+        conn.close()
+        return jsonify([])
     rows = conn.execute(
         "SELECT id, title, location_text, tag, organization, lat, lng, image_url, expiry_time "
         "FROM food_posts "
-        "WHERE expiry_time > ? AND lat IS NOT NULL AND lng IS NOT NULL "
+        "WHERE expiry_time > ? AND school_id = ? "
+        "AND lat IS NOT NULL AND lng IS NOT NULL "
         "ORDER BY expiry_time ASC",
-        (now,),
+        (now, school_id),
     ).fetchall()
     conn.close()
     return jsonify([_to_feed_item(r) for r in rows])
@@ -157,10 +169,14 @@ def create_post():
     user_id = current_user_id()
 
     conn = get_db_connection()
+    school_id = _current_school_id(conn)
+    if school_id is None:
+        conn.close()
+        return jsonify({"error": "join a school before posting"}), 409
     cur = conn.execute(
-        "INSERT INTO food_posts (user_id, title, location_text, tag, organization, lat, lng, expiry_time, image_url) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (user_id, title, location, tag, organization, lat, lng, expiry.isoformat(), image_url),
+        "INSERT INTO food_posts (user_id, school_id, title, location_text, tag, organization, lat, lng, expiry_time, image_url) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, school_id, title, location, tag, organization, lat, lng, expiry.isoformat(), image_url),
     )
     post_id = cur.lastrowid
 
@@ -250,6 +266,13 @@ def scan_flyer():
         "tag": parsed.get("tag"),
         "organization": parsed.get("organization"),
     })
+
+
+def _current_school_id(conn):
+    row = conn.execute(
+        "SELECT school_id FROM users WHERE id = ?", (current_user_id(),)
+    ).fetchone()
+    return row["school_id"] if row else None
 
 
 def _to_feed_item(row):

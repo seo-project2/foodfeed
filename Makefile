@@ -1,4 +1,4 @@
-.PHONY: help install init-db serve
+.PHONY: help install init-db serve wipe-user
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
@@ -11,3 +11,7 @@ init-db: ## Create foodfeed.db from schema.sql and seed dev user
 
 serve: ## Run the Flask dev server on :5000
 	python -m FoodFeed.app
+
+wipe-user: ## Delete a user by email (demo reset). Usage: make wipe-user EMAIL=you@uchicago.edu
+	@test -n "$(EMAIL)" || (echo "EMAIL is required (e.g. make wipe-user EMAIL=you@uchicago.edu)" && exit 1)
+	python -m FoodFeed.wipe_user $(EMAIL)

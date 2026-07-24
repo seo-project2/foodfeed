@@ -46,16 +46,24 @@ def list_saved():
     user_id = current_user_id()
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db_connection()
+    school_row = conn.execute(
+        "SELECT school_id FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    school_id = school_row["school_id"] if school_row else None
+    if school_id is None:
+        conn.close()
+        return jsonify({"posts": [], "ids": []})
     rows = conn.execute(
         "SELECT p.id, p.title, p.location_text, p.tag, p.organization, p.lat, p.lng, p.image_url, p.expiry_time, s.saved_at "
         "FROM saved_posts s JOIN food_posts p ON p.id = s.post_id "
-        "WHERE s.user_id = ? AND p.expiry_time > ? "
+        "WHERE s.user_id = ? AND p.expiry_time > ? AND p.school_id = ? "
         "ORDER BY s.saved_at DESC",
-        (user_id, now),
+        (user_id, now, school_id),
     ).fetchall()
     ids = conn.execute(
-        "SELECT post_id FROM saved_posts WHERE user_id = ?",
-        (user_id,),
+        "SELECT s.post_id FROM saved_posts s JOIN food_posts p ON p.id = s.post_id "
+        "WHERE s.user_id = ? AND p.school_id = ?",
+        (user_id, school_id),
     ).fetchall()
     conn.close()
 
