@@ -69,7 +69,17 @@ def _run_migrations(conn):
         if not fname.endswith(".sql") or fname in applied:
             continue
         with open(os.path.join(MIGRATIONS_DIR, fname), "r") as f:
-            conn.executescript(f.read())
+            script = f.read()
+        try:
+            conn.executescript(script)
+        except sqlite3.OperationalError as e:
+            msg = str(e).lower()
+            if "duplicate column" in msg or "already exists" in msg:
+                # The migration's effect is already present (e.g. schema.sql
+                # was applied first at some point). Record it and move on.
+                conn.rollback()
+            else:
+                raise
         conn.execute("INSERT INTO schema_migrations (name) VALUES (?)", (fname,))
         conn.commit()
 
