@@ -10,7 +10,7 @@ MIGRATIONS_DIR = os.path.join(HERE, "migrations")
 
 SEED_USER_ID = "dev-seed-user"
 
-DROP_ORDER = ("saved_posts", "notifications", "subscriptions", "food_posts", "users", "schools")
+DROP_ORDER = ("post_reactions", "saved_posts", "notifications", "subscriptions", "food_posts", "users", "schools")
 
 
 def _ensure_db_dir():

@@ -66,8 +66,9 @@ def list_posts():
     sql += " ORDER BY expiry_time ASC"
 
     rows = conn.execute(sql, tuple(params)).fetchall()
+    reactions = _reactions_by_post(conn, [r["id"] for r in rows], current_user_id())
     conn.close()
-    return jsonify([_to_feed_item(r) for r in rows])
+    return jsonify([_to_feed_item(r, reactions.get(r["id"])) for r in rows])
 
 
 @bp.get("/map")
@@ -87,8 +88,9 @@ def list_map_posts():
         "ORDER BY expiry_time ASC",
         (now, school_id),
     ).fetchall()
+    reactions = _reactions_by_post(conn, [r["id"] for r in rows], current_user_id())
     conn.close()
-    return jsonify([_to_feed_item(r) for r in rows])
+    return jsonify([_to_feed_item(r, reactions.get(r["id"])) for r in rows])
 
 
 @bp.get("/<int:post_id>")
@@ -99,10 +101,45 @@ def get_post(post_id):
         "FROM food_posts WHERE id = ?",
         (post_id,),
     ).fetchone()
-    conn.close()
     if row is None:
+        conn.close()
         return jsonify({"error": "not found"}), 404
-    return jsonify(_to_feed_item(row))
+    reactions = _reactions_by_post(conn, [post_id], current_user_id())
+    conn.close()
+    return jsonify(_to_feed_item(row, reactions.get(post_id)))
+
+
+@bp.post("/<int:post_id>/react")
+@require_auth
+def toggle_reaction(post_id):
+    body = request.get_json(silent=True) or {}
+    kind = (body.get("kind") or "").strip()
+    if kind not in ("otw", "got", "late", "gone", "still"):
+        return jsonify({"error": "invalid kind"}), 400
+    user_id = current_user_id()
+
+    conn = get_db_connection()
+    exists = conn.execute(
+        "SELECT 1 FROM food_posts WHERE id = ?", (post_id,)
+    ).fetchone()
+    if exists is None:
+        conn.close()
+        return jsonify({"error": "not found"}), 404
+    existing = conn.execute(
+        "SELECT id FROM post_reactions WHERE post_id = ? AND user_id = ? AND kind = ?",
+        (post_id, user_id, kind),
+    ).fetchone()
+    if existing:
+        conn.execute("DELETE FROM post_reactions WHERE id = ?", (existing["id"],))
+    else:
+        conn.execute(
+            "INSERT INTO post_reactions (post_id, user_id, kind) VALUES (?, ?, ?)",
+            (post_id, user_id, kind),
+        )
+    conn.commit()
+    reactions = _reactions_by_post(conn, [post_id], user_id)
+    conn.close()
+    return jsonify({"post_id": post_id, "reactions": reactions.get(post_id, _empty_reactions())})
 
 
 @bp.post("")
@@ -275,7 +312,39 @@ def _current_school_id(conn):
     return row["school_id"] if row else None
 
 
-def _to_feed_item(row):
+REACTION_KINDS = ("otw", "got", "late", "gone", "still")
+
+
+def _empty_reactions():
+    return {kind: 0 for kind in REACTION_KINDS} | {"my": []}
+
+
+def _reactions_by_post(conn, post_ids, user_id):
+    """Return {post_id: {otw, got, late, gone, still, my: [...]}} for the given posts."""
+    if not post_ids:
+        return {}
+    placeholders = ",".join("?" * len(post_ids))
+    counts = conn.execute(
+        f"SELECT post_id, kind, COUNT(*) AS c FROM post_reactions "
+        f"WHERE post_id IN ({placeholders}) GROUP BY post_id, kind",
+        tuple(post_ids),
+    ).fetchall()
+    mine = []
+    if user_id:
+        mine = conn.execute(
+            f"SELECT post_id, kind FROM post_reactions "
+            f"WHERE user_id = ? AND post_id IN ({placeholders})",
+            (user_id, *post_ids),
+        ).fetchall()
+    result = {pid: _empty_reactions() for pid in post_ids}
+    for row in counts:
+        result[row["post_id"]][row["kind"]] = row["c"]
+    for row in mine:
+        result[row["post_id"]]["my"].append(row["kind"])
+    return result
+
+
+def _to_feed_item(row, reactions=None):
     expiry = datetime.fromisoformat(row["expiry_time"])
     if expiry.tzinfo is None:
         expiry = expiry.replace(tzinfo=timezone.utc)
@@ -292,4 +361,8 @@ def _to_feed_item(row):
     if row["lat"] is not None and row["lng"] is not None:
         item["lat"] = row["lat"]
         item["lng"] = row["lng"]
+    r = reactions or _empty_reactions()
+    item["reactions"] = r
+    if r["gone"] >= 2 and r["gone"] > r["still"]:
+        item["status"] = "gone"
     return item
