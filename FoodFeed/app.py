@@ -6,6 +6,7 @@ from flask_cors import CORS
 from .config import ALLOWED_ORIGINS, IS_PRODUCTION, SECRET_KEY, UPLOAD_DIR
 from .databases import ensure_schema
 from .routes.auth import bp as auth_bp
+from .routes.dev import bp as dev_bp
 from .routes.geo import bp as geo_bp
 from .routes.me import bp as me_bp
 from .routes.notifications import bp as notifications_bp
@@ -38,6 +39,7 @@ def create_app():
     app.register_blueprint(saved_bp)
     app.register_blueprint(schools_bp)
     app.register_blueprint(geo_bp)
+    app.register_blueprint(dev_bp)
 
     @app.get("/uploads/<path:filename>")
     def serve_upload(filename):
